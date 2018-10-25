@@ -78,15 +78,14 @@ function GetJoinSql(expr: ut.Expr, ctx: Context): string {
 
     const parentSql = toSql(expr.parent, ctx);
 
-    const table = ctx.getTable(expr.tableName);
-    const tableName = `[${table.name.db_name}].[${table.name.schema}].[${table.name.name}]`;
+    const joinSourceSql = ut.isSelectStatementExpr(expr.joinSource) ? `(${toSql(expr.joinSource, ctx)})` : toSql(expr.joinSource, ctx);
 
     const joinSql = GetJoinTypeSql(expr.joinType);
 
     const predicateSql = toSql(expr.on, ctx);
     
     
-    return `${parentSql} ${joinSql} ${tableName} as ${expr.alias} on ${predicateSql}`
+    return `${parentSql} ${joinSql} ${joinSourceSql} as ${expr.alias} on ${predicateSql}`
 }
 
 function GetProjectionSql(expr: ut.Expr, ctx: Context, alias?: string | undefined) {
@@ -129,6 +128,11 @@ function GetSelectSql(expr: ut.Expr, parentCtx: Context): string {
 function toSql(expr: ut.Expr | undefined, ctx: Context): string {
     if(expr === undefined){
         return ''
+    }
+
+    if(ut.isTableReferenceExpr(expr)) {
+        const table = ctx.getTable(expr.tableName);
+        return `[${table.name.db_name}].[${table.name.schema}].[${table.name.name}]`;
     }
 
     if(ut.isFromExpr(expr)) {

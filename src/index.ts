@@ -156,7 +156,12 @@ export class PredicateExpr<T> extends TypedExpr<T> {
     }
 }
 
+function isSelectExpr<T>(input: any): input is SelectExpr<T> {
+    return !!input && input['_tag'] === 'SelectExpr<T>';
+}
+
 export class SelectExpr<T> extends TypedExpr<T> {
+    readonly _tag: 'SelectExpr<T>' = 'SelectExpr<T>'
     constructor(public row: Row<T>, public expr: ut.FromExpr | ut.SelectStatementExpr, public alias?: string | undefined) {
         super(expr)
     }
@@ -194,27 +199,53 @@ export class SelectExpr<T> extends TypedExpr<T> {
 abstract class JoinBuilderStart<L, LAlias extends string, R, RAlias extends string, T, TResult> {
     constructor(
         public joinType: ut.JoinType,
-        public left: Table<L>,
+        public left: SelectExpr<L> | Table<L>,
         public lalias: LAlias,
-        public right: Table<R>,
+        public right: SelectExpr<R> | Table<R>,
         public ralias: RAlias
     ){}
 
     on(func: (t: T) => PredicateExpr<any>): JoinExpr<TResult> {
         const aliases: any = {}
-        const leftDefaults = GetColumnProjectionsFromTable(this.left, this.lalias);
-        const rightDefaults = GetColumnProjectionsFromTable(this.right, this.ralias);
+        const leftDefaults = (() => {
+            if(isSelectExpr(this.left)){
+                return GetColumnProjectionsFromRow(this.left.row, this.lalias);
+            }
+
+            return GetColumnProjectionsFromTable(this.left, this.lalias);
+        })();
+
+        const rightDefaults = (() => {
+            if(isSelectExpr(this.right)){
+                return GetColumnProjectionsFromRow(this.right.row, this.ralias);
+            }
+
+            return GetColumnProjectionsFromTable(this.right, this.ralias);
+        })();
 
         aliases[this.lalias] = leftDefaults;
         aliases[this.ralias] = rightDefaults;
 
-        const leftTableName = getTableFromType(this.left);
-        const rightTableName = getTableFromType(this.right);
+        const leftSource = (() => {
+            if(isSelectExpr(this.left)){
+                return this.left.expr;
+            }
 
-        const fromExpr = new ut.FromExpr(leftTableName, this.lalias);
+            const leftTableName = getTableFromType(this.left);
+            return new ut.FromExpr(leftTableName, this.lalias);
+        })();
+
+        const rightSource = (() => {
+            if(isSelectExpr(this.right)){
+                return this.right.expr;
+            }
+
+            const rightTableName = getTableFromType(this.right);
+            return new ut.TableReferenceExpr(rightTableName);
+        })();
 
         const predicate = func(aliases as T);
-        const joinExpr = new ut.JoinExpr(fromExpr, this.joinType, rightTableName, this.ralias, predicate.expr);
+        const joinExpr = new ut.JoinExpr(leftSource, this.joinType, rightSource, this.ralias, predicate.expr);
 
         return new JoinExpr<TResult>(aliases, joinExpr);
     }
@@ -231,9 +262,9 @@ export class InnerJoinBuilderStart<L, LAlias extends string, R, RAlias extends s
     >
 {
     constructor(
-        public left: Table<L>,
+        public left: SelectExpr<L> | Table<L>,
         public lalias: LAlias,
-        public right: Table<R>,
+        public right: SelectExpr<R> | Table<R>,
         public ralias: RAlias
     ){
         super(ut.JoinType.inner, left, lalias, right, ralias);
@@ -251,9 +282,9 @@ export class LeftOuterJoinBuilderStart<L, LAlias extends string, R, RAlias exten
     >
 {
     constructor(
-        public left: Table<L>,
+        public left: SelectExpr<L> | Table<L>,
         public lalias: LAlias,
-        public right: Table<R>,
+        public right: SelectExpr<R> | Table<R>,
         public ralias: RAlias
     ){
         super(ut.JoinType.leftOuter, left, lalias, right, ralias);
@@ -271,9 +302,9 @@ export class RightOuterJoinBuilderStart<L, LAlias extends string, R, RAlias exte
     >
 {
     constructor(
-        public left: Table<L>,
+        public left: SelectExpr<L> | Table<L>,
         public lalias: LAlias,
-        public right: Table<R>,
+        public right: SelectExpr<R> | Table<R>,
         public ralias: RAlias
     ){
         super(ut.JoinType.rightOuter, left, lalias, right, ralias);
@@ -285,36 +316,51 @@ abstract class JoinBuilder<L, R, RAlias extends string, T, TResult> {
         public joinType: ut.JoinType, 
         public aliases: L, 
         public parent: ut.Expr, 
-        public right: Table<R>, 
+        public right: SelectExpr<R> | Table<R>, 
         public ralias: RAlias
     ){}
 
     on(func: (t: T) => PredicateExpr<any>): JoinExpr<TResult> {
         const aliases: any = {};
         Object.assign(aliases, this.aliases);
-        const rightDefaults = GetColumnProjectionsFromTable(this.right, this.ralias);
-        const rightTableName = getTableFromType(this.right);
+        
+        const rightDefaults = (() => {
+            if(isSelectExpr(this.right)){
+                return GetColumnProjectionsFromRow(this.right.row, this.ralias);
+            }
+
+            return GetColumnProjectionsFromTable(this.right, this.ralias);
+        })();
+
         aliases[this.ralias] = rightDefaults;
+
+        const rightSource = (() => {
+            if(isSelectExpr(this.right)){
+                return this.right.expr;
+            }
+
+            const rightTableName = getTableFromType(this.right);
+            return new ut.TableReferenceExpr(rightTableName);
+        })();       
 
         const predicate = func(aliases as T);
 
-        const joinExpr = new ut.JoinExpr(this.parent, this.joinType, rightTableName, this.ralias, predicate.expr);
+        const joinExpr = new ut.JoinExpr(this.parent, this.joinType, rightSource, this.ralias, predicate.expr);
 
         return new JoinExpr<TResult>(aliases, joinExpr);
     }
 }
 
-
 export class InnerJoinBuilder<L, R, RAlias extends string> extends 
     JoinBuilder<L, R, RAlias, L & { [K in RAlias]: ToRow<R>}, L & { [K in RAlias]: ToRow<R>}> {
-    constructor(public aliases: L, public parent: ut.Expr, public right: Table<R>, public ralias: RAlias){
+    constructor(public aliases: L, public parent: ut.Expr, public right: SelectExpr<R> | Table<R>, public ralias: RAlias){
         super(ut.JoinType.inner, aliases, parent, right, ralias);
     }
 }
 
 export class LeftOuterJoinBuilder<L, R, RAlias extends string> extends 
 JoinBuilder<L, R, RAlias, L & { [K in RAlias]: ToRow<R>}, L & { [K in RAlias]: ToOuterRow<R>}> {
-    constructor(public aliases: L, public parent: ut.Expr, public right: Table<R>, public ralias: RAlias){
+    constructor(public aliases: L, public parent: ut.Expr, public right: SelectExpr<R> | Table<R>, public ralias: RAlias){
         super(ut.JoinType.leftOuter, aliases, parent, right, ralias);
     }
 }
@@ -328,7 +374,7 @@ JoinBuilder<
     { [K in keyof L]: { [P in keyof L[K]]: L[K][P] extends ColumnExpr<infer U> ? ColumnExpr<U | null> : never } } 
         & { [K in RAlias]: ToRow<R>}
     > {
-    constructor(public aliases: L, public parent: ut.Expr, public right: Table<R>, public ralias: RAlias){
+    constructor(public aliases: L, public parent: ut.Expr, public right: SelectExpr<R> | Table<R>, public ralias: RAlias){
         super(ut.JoinType.rightOuter, aliases, parent, right, ralias);
     }
 }
@@ -338,19 +384,19 @@ export class JoinExpr<T> extends TypedExpr<T> {
         super(expr);
     }
 
-    join<R, RAlias extends string>(right: Table<R>, alias: RAlias): InnerJoinBuilder<T, R, RAlias> {
+    join<R, RAlias extends string>(right: SelectExpr<R> | Table<R>, alias: RAlias): InnerJoinBuilder<T, R, RAlias> {
         return this.innerJoin(right, alias);
     }
 
-    innerJoin<R, RAlias extends string>(right: Table<R>, alias: RAlias): InnerJoinBuilder<T, R, RAlias> {
+    innerJoin<R, RAlias extends string>(right: SelectExpr<R> | Table<R>, alias: RAlias): InnerJoinBuilder<T, R, RAlias> {
         return new InnerJoinBuilder<T, R, RAlias>(this.aliases, this.expr, right, alias);
     }
 
-    leftOuterJoin<R, RAlias extends string>(right: Table<R>, alias: RAlias): LeftOuterJoinBuilder<T, R, RAlias> {
+    leftOuterJoin<R, RAlias extends string>(right: SelectExpr<R> | Table<R>, alias: RAlias): LeftOuterJoinBuilder<T, R, RAlias> {
         return new LeftOuterJoinBuilder<T, R, RAlias>(this.aliases, this.expr, right, alias);
     }
 
-    rightOuterJoin<R, RAlias extends string>(right: Table<R>, alias: RAlias): RightOuterJoinBuilder<T, R, RAlias> {
+    rightOuterJoin<R, RAlias extends string>(right: SelectExpr<R> | Table<R>, alias: RAlias): RightOuterJoinBuilder<T, R, RAlias> {
         return new RightOuterJoinBuilder<T, R, RAlias>(this.aliases, this.expr, right, alias);
     }
 
@@ -390,19 +436,19 @@ export class FromExpr<T, Talias extends string> extends TypedExpr<T> {
         return new SelectExpr<Projection>(row, select);
     }
 
-    join<R, Ralias extends string>(joinedTable: Table<R>, ralias: Ralias): InnerJoinBuilderStart<T, Talias, R, Ralias> {
+    join<R, Ralias extends string>(joinedTable: SelectExpr<R> | Table<R>, ralias: Ralias): InnerJoinBuilderStart<T, Talias, R, Ralias> {
         return this.innerJoin(joinedTable, ralias);
     }
 
-    innerJoin<R, Ralias extends string>(joinedTable: Table<R>, ralias: Ralias): InnerJoinBuilderStart<T, Talias, R, Ralias> {
+    innerJoin<R, Ralias extends string>(joinedTable: SelectExpr<R> | Table<R>, ralias: Ralias): InnerJoinBuilderStart<T, Talias, R, Ralias> {
         return new InnerJoinBuilderStart<T, Talias, R, Ralias>(this.table, this.alias, joinedTable, ralias);
     }
 
-    leftOuterJoin<R, Ralias extends string>(joinedTable: Table<R>, ralias: Ralias): LeftOuterJoinBuilderStart<T, Talias, R, Ralias> {
+    leftOuterJoin<R, Ralias extends string>(joinedTable: SelectExpr<R> | Table<R>, ralias: Ralias): LeftOuterJoinBuilderStart<T, Talias, R, Ralias> {
         return new LeftOuterJoinBuilderStart<T, Talias, R, Ralias>(this.table, this.alias, joinedTable, ralias);
     }
 
-    rightOuterJoin<R, Ralias extends string>(joinedTable: Table<R>, ralias: Ralias): RightOuterJoinBuilderStart<T, Talias, R, Ralias> {
+    rightOuterJoin<R, Ralias extends string>(joinedTable: SelectExpr<R> | Table<R>, ralias: Ralias): RightOuterJoinBuilderStart<T, Talias, R, Ralias> {
         return new RightOuterJoinBuilderStart<T, Talias, R, Ralias>(this.table, this.alias, joinedTable, ralias);
     }
 }

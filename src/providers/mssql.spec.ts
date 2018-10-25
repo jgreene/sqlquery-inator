@@ -277,16 +277,18 @@ describe('mssql query tests', () => {
     });
 
     it('subquery is allowed in join', async () => {
+        const subquery = from(Person, 'p').selectAll().where(p => p.FirstName.equals('Heinz'))
+
         const query = from(Person, 'p')
                         .leftOuterJoin(Address, 'a').on(r => r.p.ID.equals(r.a.PersonID))
-                        .leftOuterJoin(Person, 'p2').on(r => r.a.PersonID.equals(r.p2.ID))
+                        .leftOuterJoin(subquery, 'p2').on(r => r.a.PersonID.equals(r.p2.ID))
                         .select(r => { 
                             return { ...r.p, StreetAddress1: r.a.StreetAddress1, SecondFirstName: r.p2.FirstName }
                         });
 
         const result = toQuery(testDBSchema, query.expr);
 
-        //expect(result.sql).eq(`select p.[ID], p.[FirstName], p.[LastName], a.[StreetAddress1], (p2.[FirstName]) as 'SecondFirstName' from [TestDB].[dbo].[Person] as p left outer join [TestDB].[dbo].[Address] as a on p.[ID] = a.[PersonID] left inner join [TestDB].[dbo].[Person] as p2 on a.[PersonID] = p2.[ID]`)
+        expect(result.sql).eq(`select p.[ID], p.[FirstName], p.[LastName], a.[StreetAddress1], (p2.[FirstName]) as 'SecondFirstName' from [TestDB].[dbo].[Person] as p left outer join [TestDB].[dbo].[Address] as a on p.[ID] = a.[PersonID] left outer join (select p.[ID], p.[FirstName], p.[LastName] from [TestDB].[dbo].[Person] as p where p.[FirstName] = @v) as p2 on a.[PersonID] = p2.[ID]`);
     });
 });
 

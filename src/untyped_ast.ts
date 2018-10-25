@@ -32,12 +32,23 @@ export function isValidJoinType(input: any): input is JoinType {
     return (JoinType as any)[input] !== undefined;
 }
 
+export class TableReferenceExpr extends Expr {
+    readonly _tag = 'TableReferenceExpr'
+    constructor(
+        public tableName: string
+    ) {
+        super()
+    }
+}
+
+export const isTableReferenceExpr = is<TableReferenceExpr>('TableReferenceExpr')
+
 export class JoinExpr extends Expr {
     readonly _tag = 'JoinExpr'
     constructor(
         public parent: Expr,
         public joinType: JoinType, 
-        public tableName: string, 
+        public joinSource: Expr, 
         public alias: string, 
         public on: Expr
     ) {
