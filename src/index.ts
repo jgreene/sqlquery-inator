@@ -162,7 +162,7 @@ function isSelectExpr<T>(input: any): input is SelectExpr<T> {
 
 export class SelectExpr<T> extends TypedExpr<T> {
     readonly _tag: 'SelectExpr<T>' = 'SelectExpr<T>'
-    constructor(public row: Row<T>, public expr: ut.FromExpr | ut.SelectStatementExpr, public alias?: string | undefined) {
+    constructor(public row: Row<T>, public expr: ut.SelectStatementExpr, public alias?: string | undefined) {
         super(expr)
     }
 
@@ -193,6 +193,50 @@ export class SelectExpr<T> extends TypedExpr<T> {
         const select = new ut.SelectStatementExpr(projection, this.expr, undefined, alias || this.alias);
 
         return new SelectExpr<Projection>(row, select);
+    }
+
+    orderBy(func: (t: Row<T>) => ColumnExpr<ColumnType>, direction?: 'ASC' | 'DESC'): OrderByExpr<T> {
+        
+        const field = func(this.row);
+        const orderBy = new ut.OrderByExpr(field.expr, direction || 'ASC')
+        const select = new ut.SelectStatementExpr(this.expr.projection, this.expr.from, this.expr.where, this.expr.alias, orderBy);
+
+        return new OrderByExpr<T>(this.row, select);
+    }
+
+    orderByDesc(func: (t: Row<T>) => ColumnExpr<ColumnType>): OrderByExpr<T> {
+        return this.orderBy(func, 'DESC');
+    }
+
+    take(num: number): SelectExpr<T> {
+        const select = new ut.SelectStatementExpr(
+                            this.expr.projection, 
+                            this.expr.from, 
+                            this.expr.where, 
+                            this.expr.alias, 
+                            this.expr.orderBy,
+                            new ut.TakeExpr(num)
+                        );
+        return new SelectExpr<T>(this.row, select);
+    }
+}
+
+export class OrderByExpr<T> extends SelectExpr<T> {
+    constructor(row: Row<T>, expr: ut.SelectStatementExpr, alias?: string | undefined) {
+        super(row, expr, alias)
+    }
+
+    thenBy(func: (t: Row<T>) => ColumnExpr<ColumnType>, direction?: 'ASC' | 'DESC'): OrderByExpr<T> {
+        
+        const field = func(this.row);
+        const orderBy = new ut.OrderByExpr(field.expr, direction || 'ASC', this.expr.orderBy)
+        const select = new ut.SelectStatementExpr(this.expr.projection, this.expr.from, this.expr.where, this.expr.alias, orderBy);
+
+        return new OrderByExpr<T>(this.row, select);
+    }
+
+    thenByDesc(func: (t: Row<T>) => ColumnExpr<ColumnType>): OrderByExpr<T> {
+        return this.thenBy(func, 'DESC');
     }
 }
 
@@ -341,7 +385,7 @@ abstract class JoinBuilder<L, R, RAlias extends string, T, TResult> {
 
             const rightTableName = getTableFromType(this.right);
             return new ut.TableReferenceExpr(rightTableName);
-        })();       
+        })();
 
         const predicate = func(aliases as T);
 

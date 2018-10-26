@@ -173,13 +173,35 @@ export class SelectStatementExpr extends Expr {
         public projection: ProjectionExpr, 
         public from?: Expr | undefined, 
         public where?: Expr | undefined, 
-        public alias?: string | undefined
+        public alias?: string | undefined,
+        public orderBy?: OrderByExpr | undefined,
+        public take?: TakeExpr | undefined
     ) {
         super()
     }
 }
 
 export const isSelectStatementExpr = is<SelectStatementExpr>('SelectStatementExpr')
+
+export class OrderByExpr extends Expr {
+    readonly _tag = 'OrderByExpr'
+
+    constructor(public field: Expr, public direction: 'ASC' | 'DESC', public parent?: OrderByExpr | undefined) {
+        super()
+    }
+}
+
+export const isOrderByExpr = is<OrderByExpr>('OrderByExpr')
+
+export class TakeExpr extends Expr {
+    readonly _tag = 'TakeExpr'
+
+    constructor(public take: number) {
+        super()
+    }
+}
+
+export const isTakeExpr = is<TakeExpr>('TakeExpr')
 
 export class ScalarFunctionExpr extends Expr {
     readonly _tag = 'ScalarFunctionExpr'

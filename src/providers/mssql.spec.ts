@@ -18,7 +18,7 @@ const PersonType = t.type({
 
 class Person extends tdc.DeriveClass(PersonType) {}
 
-registerTable(Person, 'TestDB.dbo.Person');
+registerTable(Person, 'sqlquery-inator.dbo.Person');
 
 const AddressType = t.type({
     ID: t.Integer,
@@ -29,13 +29,13 @@ const AddressType = t.type({
 
 class Address extends tdc.DeriveClass(AddressType) {}
 
-registerTable(Address, 'TestDB.dbo.Address');
+registerTable(Address, 'sqlquery-inator.dbo.Address');
 
-const testDBSchema: DBSchema = {
-    name: 'TestDB',
+const dbschema: DBSchema = {
+    name: 'sqlquery-inator',
     tables: [
         { 
-            name: { db_name: 'TestDB', schema: 'dbo', name: 'Person'},
+            name: { db_name: 'sqlquery-inator', schema: 'dbo', name: 'Person'},
             columns: [
                 { 
                     name: 'ID',
@@ -76,8 +76,8 @@ const testDBSchema: DBSchema = {
             ],
             many_to_ones: [],
             one_to_manys: [{
-                child_table: { db_name: 'TestDB', schema: 'dbo', name: 'Address'}, 
-                constraint_name: { db_name: 'TestDB', schema: 'dbo', name: 'FK_Address_ToPerson'}, 
+                child_table: { db_name: 'sqlquery-inator', schema: 'dbo', name: 'Address'}, 
+                constraint_name: { db_name: 'sqlquery-inator', schema: 'dbo', name: 'FK_Address_ToPerson'}, 
                 column_map: [{ column: 'ID', child_column: 'PersonID' }]
             }],
             one_to_ones: [],
@@ -86,7 +86,7 @@ const testDBSchema: DBSchema = {
             unique_constraints: []
         },
         { 
-            name: { db_name: 'TestDB', schema: 'dbo', name: 'Address'},
+            name: { db_name: 'sqlquery-inator', schema: 'dbo', name: 'Address'},
             columns: [
                 { 
                     name: 'ID',
@@ -138,8 +138,8 @@ const testDBSchema: DBSchema = {
                 }
             ],
             many_to_ones: [{ 
-                parent_table: { db_name: 'TestDB', schema: 'dbo', name: 'Person'}, 
-                constraint_name: { db_name: 'TestDB', schema: 'dbo', name: 'FK_Address_ToPerson'}, 
+                parent_table: { db_name: 'sqlquery-inator', schema: 'dbo', name: 'Person'}, 
+                constraint_name: { db_name: 'sqlquery-inator', schema: 'dbo', name: 'FK_Address_ToPerson'}, 
                 column_map: [{ column: 'PersonID', parent_column: 'ID' }]
             }],
             one_to_manys: [],
@@ -151,64 +151,115 @@ const testDBSchema: DBSchema = {
     ]
 }
 
+function compare(actual: string, expected: string){
+    actual = actual.trim()
+    expected = expected.trim()
+
+    return expect(actual).eq(expected);
+}
+
 describe('mssql query tests', () => {
     it('Can generate Select * query', async () => {
         const query = from(Person, 'p').selectAll()
-        const result = toQuery(testDBSchema, query.expr);
+        const result = toQuery(dbschema, query.expr);
 
-        expect(result.sql).eq(`select p.[ID], p.[FirstName], p.[LastName] from [TestDB].[dbo].[Person] as p`)
+        compare(result.sql, 
+`select
+    p.[ID],
+    p.[FirstName],
+    p.[LastName]
+from [sqlquery-inator].[dbo].[Person] as p`)
     })
 
     it('Can select individual columns from table', async () => {
         const query = from(Person, 'p').select(p => { return { ID: p.ID }});
-        const result = toQuery(testDBSchema, query.expr);
+        const result = toQuery(dbschema, query.expr);
 
-        expect(result.sql).eq(`select p.[ID] from [TestDB].[dbo].[Person] as p`)
+        compare(result.sql, 
+`select
+    p.[ID]
+from [sqlquery-inator].[dbo].[Person] as p`)
     })
 
     it('Can call select with scalar function', async () => {
         const isNullExpr = ISNULL(val(null), val(''));
         const query = from(Person, 'p').select(p => { return { test: isNullExpr } });
-        const result = toQuery(testDBSchema, query.expr);
+        const result = toQuery(dbschema, query.expr);
 
-        expect(result.sql).eq(`select (ISNULL(null, '')) as 'test' from [TestDB].[dbo].[Person] as p`)
+        compare(result.sql, 
+`select
+    (ISNULL(null, '')) as 'test'
+from [sqlquery-inator].[dbo].[Person] as p`)
     })
 
     it('Can select columns and additional calculated fields', async () => {
         const isNullExpr = ISNULL(val(null), val(''));
         const query = from(Person, 'p').select(p => { return { ID: p.ID, FirstName: p.FirstName, blah: isNullExpr }})
-        const result = toQuery(testDBSchema, query.expr);
+        const result = toQuery(dbschema, query.expr);
 
-        expect(result.sql).eq(`select p.[ID], p.[FirstName], (ISNULL(null, '')) as 'blah' from [TestDB].[dbo].[Person] as p`)
+        compare(result.sql, 
+`select
+    p.[ID],
+    p.[FirstName],
+    (ISNULL(null, '')) as 'blah'
+from [sqlquery-inator].[dbo].[Person] as p`)
     })
 
     it('Can select all columns using spread syntax', async () => {
         const isNullExpr = ISNULL(val(null), val(''));
         const query = from(Person, 'p').select(p => { return { ...p, blah: isNullExpr }})
-        const result = toQuery(testDBSchema, query.expr);
+        const result = toQuery(dbschema, query.expr);
 
-        expect(result.sql).eq(`select p.[ID], p.[FirstName], p.[LastName], (ISNULL(null, '')) as 'blah' from [TestDB].[dbo].[Person] as p`)
+        compare(result.sql, 
+`select
+    p.[ID],
+    p.[FirstName],
+    p.[LastName],
+    (ISNULL(null, '')) as 'blah'
+from [sqlquery-inator].[dbo].[Person] as p`)
     })
 
     it('Can filter using where clause', async () => {
         const query = from(Person, 'p').selectAll().where(p => p.FirstName.equals('Heinz').and(p.LastName.equals('Doofenschmirtz')))
-        const result = toQuery(testDBSchema, query.expr);
+        const result = toQuery(dbschema, query.expr);
 
-        expect(result.sql).eq(`select p.[ID], p.[FirstName], p.[LastName] from [TestDB].[dbo].[Person] as p where p.[FirstName] = @v AND p.[LastName] = @v0`)
+        compare(result.sql, 
+`select
+    p.[ID],
+    p.[FirstName],
+    p.[LastName]
+from [sqlquery-inator].[dbo].[Person] as p
+where p.[FirstName] = @v AND p.[LastName] = @v0`)
     })
 
     it('Multiple where clauses result in AND predicates', async () => {
         const query = from(Person, 'p').selectAll().where(p => p.FirstName.equals('Heinz')).where(p => p.LastName.equals('Doofenschmirtz'))
-        const result = toQuery(testDBSchema, query.expr);
+        const result = toQuery(dbschema, query.expr);
 
-        expect(result.sql).eq(`select p.[ID], p.[FirstName], p.[LastName] from [TestDB].[dbo].[Person] as p where p.[FirstName] = @v AND p.[LastName] = @v0`)
+        compare(result.sql, 
+`select
+    p.[ID],
+    p.[FirstName],
+    p.[LastName]
+from [sqlquery-inator].[dbo].[Person] as p
+where p.[FirstName] = @v AND p.[LastName] = @v0`)
     })
 
     it('Multiple selects results in inner query', async () => {
         const query = from(Person, 'p').selectAll().select(p => { return { ID: p.ID, FirstName: p.FirstName}}, 'p2')
 
-        const result = toQuery(testDBSchema, query.expr);
-        expect(result.sql).eq(`select p2.[ID], p2.[FirstName] from (select p.[ID], p.[FirstName], p.[LastName] from [TestDB].[dbo].[Person] as p) as p2`)
+        const result = toQuery(dbschema, query.expr);
+        compare(result.sql,
+`select
+    p2.[ID],
+    p2.[FirstName]
+from (
+    select
+        p.[ID],
+        p.[FirstName],
+        p.[LastName]
+    from [sqlquery-inator].[dbo].[Person] as p
+) as p2`)
     })
 
     it('Join with on predicate generates correct query', async () => {
@@ -220,9 +271,19 @@ describe('mssql query tests', () => {
                         })
                         
 
-        const result = toQuery(testDBSchema, query.expr);
+        const result = toQuery(dbschema, query.expr);
 
-        expect(result.sql).eq(`select a.[ID], p.[FirstName], p.[LastName], a.[PersonID], a.[StreetAddress1], a.[StreetAddress2] from [TestDB].[dbo].[Person] as p join [TestDB].[dbo].[Address] as a on p.[ID] = a.[PersonID] join [TestDB].[dbo].[Person] as p2 on p2.[ID] = p.[ID]`)
+        compare(result.sql,
+`select
+    a.[ID],
+    p.[FirstName],
+    p.[LastName],
+    a.[PersonID],
+    a.[StreetAddress1],
+    a.[StreetAddress2]
+from [sqlquery-inator].[dbo].[Person] as p
+join [sqlquery-inator].[dbo].[Address] as a on p.[ID] = a.[PersonID]
+join [sqlquery-inator].[dbo].[Person] as p2 on p2.[ID] = p.[ID]`)
     });
 
     it('Select can use spread operator and delete to return desired results', async () => {
@@ -237,17 +298,31 @@ describe('mssql query tests', () => {
                         })
                         
 
-        const result = toQuery(testDBSchema, query.expr);
+        const result = toQuery(dbschema, query.expr);
 
-        expect(result.sql).eq(`select p.[ID], p.[FirstName], p.[LastName], a.[PersonID], a.[StreetAddress1], a.[StreetAddress2], (a.[ID]) as 'AddressID' from [TestDB].[dbo].[Person] as p join [TestDB].[dbo].[Address] as a on p.[ID] = a.[PersonID] join [TestDB].[dbo].[Person] as p2 on p2.[ID] = p.[ID]`);
+        compare(result.sql, 
+`select
+    p.[ID],
+    p.[FirstName],
+    p.[LastName],
+    a.[PersonID],
+    a.[StreetAddress1],
+    a.[StreetAddress2],
+    (a.[ID]) as 'AddressID'
+from [sqlquery-inator].[dbo].[Person] as p
+join [sqlquery-inator].[dbo].[Address] as a on p.[ID] = a.[PersonID]
+join [sqlquery-inator].[dbo].[Person] as p2 on p2.[ID] = p.[ID]`)
     });
 
     it('Selecting a value results in a parameter being injected', async () => {
         const query = from(Person, 'p').select(p => { return { ID: val(1) }})
 
-        const result = toQuery(testDBSchema, query.expr);
+        const result = toQuery(dbschema, query.expr);
         
-        expect(result.sql).eq(`select (@v) as 'ID' from [TestDB].[dbo].[Person] as p`)
+        compare(result.sql,
+`select
+    (@v) as 'ID'
+from [sqlquery-inator].[dbo].[Person] as p`)
     });
 
     it('left outer join returns nullable columns', async () => {
@@ -258,9 +333,18 @@ describe('mssql query tests', () => {
                             return { ...r.p, StreetAddress1: r.a.StreetAddress1, SecondFirstName: r.p2.FirstName }
                         });
 
-        const result = toQuery(testDBSchema, query.expr);
+        const result = toQuery(dbschema, query.expr);
 
-        expect(result.sql).eq(`select p.[ID], p.[FirstName], p.[LastName], a.[StreetAddress1], (p2.[FirstName]) as 'SecondFirstName' from [TestDB].[dbo].[Person] as p left outer join [TestDB].[dbo].[Address] as a on p.[ID] = a.[PersonID] left outer join [TestDB].[dbo].[Person] as p2 on a.[PersonID] = p2.[ID]`)
+        compare(result.sql, 
+`select
+    p.[ID],
+    p.[FirstName],
+    p.[LastName],
+    a.[StreetAddress1],
+    (p2.[FirstName]) as 'SecondFirstName'
+from [sqlquery-inator].[dbo].[Person] as p
+left outer join [sqlquery-inator].[dbo].[Address] as a on p.[ID] = a.[PersonID]
+left outer join [sqlquery-inator].[dbo].[Person] as p2 on a.[PersonID] = p2.[ID]`)
     });
 
     it('right outer join returns nullable columns', async () => {
@@ -271,9 +355,18 @@ describe('mssql query tests', () => {
                             return { ...r.p2, StreetAddress1: r.a.StreetAddress1, FirstName2: r.p.FirstName }
                         });
 
-        const result = toQuery(testDBSchema, query.expr);
+        const result = toQuery(dbschema, query.expr);
 
-        expect(result.sql).eq(`select p2.[ID], p2.[FirstName], p2.[LastName], a.[StreetAddress1], (p.[FirstName]) as 'FirstName2' from [TestDB].[dbo].[Person] as p right outer join [TestDB].[dbo].[Address] as a on p.[ID] = a.[PersonID] right outer join [TestDB].[dbo].[Person] as p2 on a.[PersonID] = p2.[ID]`)
+        compare(result.sql, 
+`select
+    p2.[ID],
+    p2.[FirstName],
+    p2.[LastName],
+    a.[StreetAddress1],
+    (p.[FirstName]) as 'FirstName2'
+from [sqlquery-inator].[dbo].[Person] as p
+right outer join [sqlquery-inator].[dbo].[Address] as a on p.[ID] = a.[PersonID]
+right outer join [sqlquery-inator].[dbo].[Person] as p2 on a.[PersonID] = p2.[ID]`)
     });
 
     it('subquery is allowed in join', async () => {
@@ -286,9 +379,66 @@ describe('mssql query tests', () => {
                             return { ...r.p, StreetAddress1: r.a.StreetAddress1, SecondFirstName: r.p2.FirstName }
                         });
 
-        const result = toQuery(testDBSchema, query.expr);
+        const result = toQuery(dbschema, query.expr);
 
-        expect(result.sql).eq(`select p.[ID], p.[FirstName], p.[LastName], a.[StreetAddress1], (p2.[FirstName]) as 'SecondFirstName' from [TestDB].[dbo].[Person] as p left outer join [TestDB].[dbo].[Address] as a on p.[ID] = a.[PersonID] left outer join (select p.[ID], p.[FirstName], p.[LastName] from [TestDB].[dbo].[Person] as p where p.[FirstName] = @v) as p2 on a.[PersonID] = p2.[ID]`);
+        compare(result.sql, 
+`select
+    p.[ID],
+    p.[FirstName],
+    p.[LastName],
+    a.[StreetAddress1],
+    (p2.[FirstName]) as 'SecondFirstName'
+from [sqlquery-inator].[dbo].[Person] as p
+left outer join [sqlquery-inator].[dbo].[Address] as a on p.[ID] = a.[PersonID]
+left outer join (
+    select
+        p.[ID],
+        p.[FirstName],
+        p.[LastName]
+    from [sqlquery-inator].[dbo].[Person] as p
+    where p.[FirstName] = @v
+) as p2 on a.[PersonID] = p2.[ID]`)
     });
+
+    it('Can order by ID', async () => {
+        const query = from(Person, 'p').selectAll().orderBy(p => p.ID);
+
+        const result = toQuery(dbschema, query.expr);
+
+        compare(result.sql, 
+`select
+    p.[ID],
+    p.[FirstName],
+    p.[LastName]
+from [sqlquery-inator].[dbo].[Person] as p
+order by p.[ID] ASC`)
+    });
+
+    it('Can order by ID then by FirstName desc', async () => {
+        const query = from(Person, 'p').selectAll().orderBy(p => p.ID).thenByDesc(p => p.FirstName);
+
+        const result = toQuery(dbschema, query.expr);
+
+        compare(result.sql, 
+`select
+    p.[ID],
+    p.[FirstName],
+    p.[LastName]
+from [sqlquery-inator].[dbo].[Person] as p
+order by p.[ID] ASC, p.[FirstName] DESC`)
+    })
+
+    it('Can limit the result set', async () => {
+        const query = from(Person, 'p').selectAll().take(5);
+
+        const result = toQuery(dbschema, query.expr);
+
+        compare(result.sql, 
+`select top (5)
+    p.[ID],
+    p.[FirstName],
+    p.[LastName]
+from [sqlquery-inator].[dbo].[Person] as p`);
+    })
 });
 

@@ -43,6 +43,15 @@ function predicateOperatorToSql(comparison: ut.PredicateOperator): string {
     throw new Error(`Could not map ${comparison} to sql operator!`);
 }
 
+function indent(input: string, ctx: Context): string {
+    const level = ctx.indent_level;
+    const parts = input.split('\n')
+    if(parts.length > 1){
+        return parts.map(p => indent(p, ctx)).join('\n');
+    }
+    return ' '.repeat(4 * level) + parts[0];
+}
+
 function GetFromSql(expr: ut.Expr, ctx: Context): string {
     if(!ut.isFromExpr(expr)){
         throw new Error('Not a from expression!');
@@ -78,14 +87,21 @@ function GetJoinSql(expr: ut.Expr, ctx: Context): string {
 
     const parentSql = toSql(expr.parent, ctx);
 
-    const joinSourceSql = ut.isSelectStatementExpr(expr.joinSource) ? `(${toSql(expr.joinSource, ctx)})` : toSql(expr.joinSource, ctx);
+    const joinTypeSql = indent(GetJoinTypeSql(expr.joinType), ctx);
 
-    const joinSql = GetJoinTypeSql(expr.joinType);
+    const joinSourceSql = (() => {
+        if(ut.isSelectStatementExpr(expr.joinSource)){
+            const innerCtx = increaseIndent(ctx);
+            const source = indent(toSql(expr.joinSource, ctx), innerCtx);
+            return `(\n${source}\n)`
+        }
+
+        return toSql(expr.joinSource, ctx)
+    })();
 
     const predicateSql = toSql(expr.on, ctx);
     
-    
-    return `${parentSql} ${joinSql} ${joinSourceSql} as ${expr.alias} on ${predicateSql}`
+    return `${parentSql}\n${joinTypeSql} ${joinSourceSql} as ${expr.alias} on ${predicateSql}`
 }
 
 function GetProjectionSql(expr: ut.Expr, ctx: Context, alias?: string | undefined) {
@@ -93,7 +109,7 @@ function GetProjectionSql(expr: ut.Expr, ctx: Context, alias?: string | undefine
         throw new Error('not a projection expression!');
     }
 
-    const projections = expr.projections.map(p => alias ? `${alias}.${toSql(p, ctx)}` : toSql(p, ctx)).join(', ')
+    const projections = expr.projections.map(p => indent(alias ? `${alias}.${toSql(p, ctx)}` : toSql(p, ctx), ctx)).join(',\n')
     return projections;
 }
 
@@ -108,21 +124,46 @@ function GetSelectSql(expr: ut.Expr, parentCtx: Context): string {
         column_aliases: {}, 
         tableAliasCount: 0, 
         table_aliases: {}, 
+        indent_level: parentCtx.indent_level,
         getTable: parentCtx.getTable
     };
 
+    const top = expr.take ? ` top (${expr.take.take})` : '';
+
     const alias = expr.alias || getTableAlias(ctx);
-    const projections = GetProjectionSql(expr.projection, ctx, expr.alias);
+    const projections = GetProjectionSql(expr.projection, increaseIndent(ctx), expr.alias);
     const isFromChildSelect = ut.isSelectStatementExpr(expr.from)
-    const where = expr.where ? ' ' + toSql(expr.where, ctx) : '';
+    const where = expr.where ? '\n' + toSql(expr.where, ctx) : '';
+    const orderBy = expr.orderBy ? '\norder by ' + toSql(expr.orderBy, ctx) : ''
+
+    const select = `select${top}\n`;
+    
     
     if(!isFromChildSelect){
-        const from = expr.from ? ' ' + toSql(expr.from, ctx) : '';
-        return `select ${projections}${from}${where}`;
+        const from = expr.from ? '\n' + toSql(expr.from, ctx) : '';
+        return `${select}${projections}${from}${where}${orderBy}`;
     }
+
+    const innerCtx = increaseIndent(ctx);
+    const sourceSql = indent(toSql(expr.from, ctx), innerCtx);
     
-    const from = `(${toSql(expr.from, ctx)}) as ${alias}`
-    return `select ${projections} from ${from}${where}`;
+    const source = `(\n${sourceSql}\n) as ${alias}`
+    return `${select}${projections}\nfrom ${source}${where}${orderBy}`;
+}
+
+function GetOrderBySql(expr: ut.Expr | undefined, ctx: Context): string {
+    if(!ut.isOrderByExpr(expr)) {
+        throw new Error('Not an OrderBy expression!');
+    }
+
+    const direction = expr.direction === 'DESC' ? 'DESC' : 'ASC'
+    const column = toSql(expr.field, ctx);
+    if(expr.parent){
+        const parent = toSql(expr.parent, ctx);
+        return `${parent}, ${column} ${direction}`
+    }
+
+    return `${column} ${direction}`;
 }
 
 function toSql(expr: ut.Expr | undefined, ctx: Context): string {
@@ -133,6 +174,10 @@ function toSql(expr: ut.Expr | undefined, ctx: Context): string {
     if(ut.isTableReferenceExpr(expr)) {
         const table = ctx.getTable(expr.tableName);
         return `[${table.name.db_name}].[${table.name.schema}].[${table.name.name}]`;
+    }
+
+    if(ut.isOrderByExpr(expr)){
+        return GetOrderBySql(expr, ctx);
     }
 
     if(ut.isFromExpr(expr)) {
@@ -267,7 +312,14 @@ type Context = {
     column_aliases: { [key: string]: string },
     tableAliasCount: number,
     table_aliases: { [key: string]: string },
+    indent_level: number,
     getTable: (tableName: string) => TableSchema
+}
+
+function increaseIndent(ctx: Context): Context {
+    const newCtx = Object.assign({}, ctx)
+    newCtx.indent_level = newCtx.indent_level + 1;
+    return newCtx;
 }
 
 export function toQuery(schema: DBSchema, expr: ut.Expr): query.SqlQuery {
@@ -277,6 +329,7 @@ export function toQuery(schema: DBSchema, expr: ut.Expr): query.SqlQuery {
         column_aliases: {}, 
         tableAliasCount: 0, 
         table_aliases: {}, 
+        indent_level: 0,
         getTable: getFindTable(schema) 
     };
     const sql = toSql(expr, ctx);

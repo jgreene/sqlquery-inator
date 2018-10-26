@@ -15,7 +15,7 @@ const PersonType = t.type({
 
 class Person extends tdc.DeriveClass(PersonType) {}
 
-registerTable<Person>(Person, 'TestDB.dbo.Person');
+registerTable<Person>(Person, 'sqlquery-inator.dbo.Person');
 
 describe('SQL query AST', () => {
 
@@ -25,7 +25,7 @@ describe('SQL query AST', () => {
         expect(ut.isFromExpr(expr)).eq(true)
 
         if(ut.isFromExpr(expr)){
-            expect(expr.tableName).eq('TestDB.dbo.Person')
+            expect(expr.tableName).eq('sqlquery-inator.dbo.Person')
         }
     })
 
