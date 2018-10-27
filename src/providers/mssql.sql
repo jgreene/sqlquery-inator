@@ -4,16 +4,6 @@ GO
 use [sqlquery-inator]
 GO
 
-select * from (
-    select
-        p.[ID],
-        p.[FirstName],
-        p.[LastName],
-        (ROW_NUMBER() OVER (ORDER BY p.[ID] ASC)) as 'RowNumber'
-    from [sqlquery-inator].[dbo].[Person] as p
-    ) as ta1
-where RowNumber > 10
-
 create table dbo.Person (
 	ID INT NOT NULL PRIMARY KEY IDENTITY(1,1), 
 	FirstName NVARCHAR(50) NOT NULL, 

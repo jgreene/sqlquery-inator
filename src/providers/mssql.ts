@@ -127,20 +127,6 @@ function GetSelectSql(expr: ut.Expr, parentCtx: Context): string {
         getTable: parentCtx.getTable
     };
 
-    // const hasWindowedFunctionCall = ut.doesProjectionContainWindowedFunction(expr.projection);
-    // if(hasWindowedFunctionCall){
-    //     const alias = expr.alias || getTableAlias(ctx);
-    //     const newSelectExpr = new ut.SelectStatementExpr(
-    //                             expr.projection, 
-    //                             expr.from, undefined, 
-    //                             expr.alias, 
-    //                             expr.orderBy)
-    //     const newCtx = increaseIndent(ctx)
-    //     const internal = indent(GetSelectSqlInternal(newSelectExpr, ctx), newCtx);
-    //     const where = expr.where ? '\n' + toSql(expr.where, ctx) : '';
-    //     return indent(`select ${alias}.* from (\n${internal}\n) as ${alias}`, ctx);
-    // }
-
     return GetSelectSqlInternal(expr, ctx);
 }
 
@@ -190,6 +176,12 @@ function GetOrderBySql(expr: ut.Expr | undefined, ctx: Context): string {
 function toSql(expr: ut.Expr | undefined, ctx: Context): string {
     if(expr === undefined){
         return ''
+    }
+
+    if(ut.isFromSelectExpr(expr)){
+        const newCtx = increaseIndent(ctx);
+        const select = indent(toSql(expr.expr, ctx), newCtx);
+        return `from (\n${select}\n) as ${expr.alias}`
     }
 
     if(ut.isTableReferenceExpr(expr)) {

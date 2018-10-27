@@ -20,6 +20,15 @@ export class FromExpr extends Expr {
 
 export const isFromExpr = is<FromExpr>('FromExpr')
 
+export class FromSelectExpr extends Expr {
+    readonly _tag = 'FromSelectExpr'
+    constructor(public expr: SelectStatementExpr, public alias: string) {
+        super()
+    }
+}
+
+export const isFromSelectExpr = is<FromSelectExpr>('FromSelectExpr')
+
 export class RowNumberExpr extends Expr {
     readonly _tag = 'RowNumberExpr'
     constructor(public orderBy: OrderByExpr) {
@@ -191,18 +200,35 @@ export class StarExpr extends Expr {
 
 export const isStarExpr = is<StarExpr>('StarExpr')
 
+type SelectOptions = {
+    projection: ProjectionExpr
+    from?: Expr | undefined, 
+    where?: Expr | undefined, 
+    alias?: string | undefined,
+    orderBy?: OrderByExpr | undefined,
+    take?: TakeExpr | undefined,
+    distinct?: boolean | undefined,
+    _tag?: string
+}
+
 export class SelectStatementExpr extends Expr {
     readonly _tag = 'SelectStatementExpr'
 
+    public readonly projection: ProjectionExpr
+    public readonly from?: Expr | undefined
+    public readonly where?: Expr | undefined
+    public readonly alias?: string | undefined
+    public readonly orderBy?: OrderByExpr | undefined
+    public readonly take?: TakeExpr | undefined
+    public readonly distinct?: boolean
+
     constructor(
-        public projection: ProjectionExpr, 
-        public from?: Expr | undefined, 
-        public where?: Expr | undefined, 
-        public alias?: string | undefined,
-        public orderBy?: OrderByExpr | undefined,
-        public take?: TakeExpr | undefined
+        options: SelectOptions
+        
     ) {
         super()
+        this.projection = options.projection;
+        Object.assign(this, options);
     }
 }
 

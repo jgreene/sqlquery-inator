@@ -9,6 +9,7 @@ import * as query from '../sqlquery';
 
 import { toQuery } from './mssql'
 import { DBSchema, ColumnSchema } from 'dbschema-inator';
+import { join } from 'path';
 
 const PersonType = t.type({
     ID: t.Integer,
@@ -523,6 +524,123 @@ from (
 where [RowNumber] > @v`)
     })
 
-    
+    it('Can use from on subquery', async () => {
+        const subquery = from(Person, 'p').selectAll();
+
+        const query = from(subquery, 'p2').selectAll();
+
+        const result = toQuery(dbschema, query.expr);
+
+        compare(result.sql,
+`select
+    p2.[ID],
+    p2.[FirstName],
+    p2.[LastName]
+from (
+    select
+        p.[ID],
+        p.[FirstName],
+        p.[LastName]
+    from [sqlquery-inator].[dbo].[Person] as p
+) as p2`)
+    })
+
+    it('Can join from subquery', async () => {
+        const subquery = from(Person, 'p').selectAll();
+
+        const query = from(subquery, 'p2')
+                        .join(Address, 'a').on(r => r.p2.ID.equals(r.a.PersonID))
+                        .select(r => { return { ...r.p2}})
+
+        const result = toQuery(dbschema, query.expr);
+
+        compare(result.sql,
+`select
+    p2.[ID],
+    p2.[FirstName],
+    p2.[LastName]
+from (
+    select
+        p.[ID],
+        p.[FirstName],
+        p.[LastName]
+    from [sqlquery-inator].[dbo].[Person] as p
+) as p2
+join [sqlquery-inator].[dbo].[Address] as a on p2.[ID] = a.[PersonID]
+`)
+    })
+
+    it('Can join multiple subqueries', async () => {
+        const subquery = from(Person, 'p').selectAll();
+        const subquery2 = from(Person, 'p2').selectAll();
+
+        const query = from(subquery, 'p2')
+                        .join(subquery2, 'p3').on(r => r.p2.ID.equals(r.p3.ID))
+                        .select(r => { return { ...r.p2}})
+
+        const result = toQuery(dbschema, query.expr);
+
+        compare(result.sql,
+`select
+    p2.[ID],
+    p2.[FirstName],
+    p2.[LastName]
+from (
+    select
+        p.[ID],
+        p.[FirstName],
+        p.[LastName]
+    from [sqlquery-inator].[dbo].[Person] as p
+) as p2
+join (
+    select
+        p2.[ID],
+        p2.[FirstName],
+        p2.[LastName]
+    from [sqlquery-inator].[dbo].[Person] as p2
+) as p3 on p2.[ID] = p3.[ID]
+`)
+    })
+
+    it('Can join against query with ROW_NUMBER and have aliases match up', async () => {
+        const rownumberQuery = from(Person, 'p').select(p => { 
+            return {
+                ...p,
+                RowNumber: ROW_NUMBER([p.ID.asc])
+            }
+        }).where(p => p.RowNumber.greaterThan(10))
+        
+
+        const query = from(rownumberQuery, 'p2')
+                        .join(Address, 'a').on(r => r.p2.ID.equals(r.a.PersonID))
+                        .select(r => { return { ...r.p2 } })
+
+        const result = toQuery(dbschema, query.expr);
+        
+        compare(result.sql, 
+`select
+    p2.[ID],
+    p2.[FirstName],
+    p2.[LastName],
+    p2.[RowNumber]
+from (
+    select
+        [ID],
+        [FirstName],
+        [LastName],
+        [RowNumber]
+    from (
+        select
+            p.[ID],
+            p.[FirstName],
+            p.[LastName],
+            (ROW_NUMBER() OVER (ORDER BY p.[ID] ASC)) as 'RowNumber'
+        from [sqlquery-inator].[dbo].[Person] as p
+    ) as ta1
+    where [RowNumber] > @v
+) as p2
+join [sqlquery-inator].[dbo].[Address] as a on p2.[ID] = a.[PersonID]
+    `)
+    })
 });
 
