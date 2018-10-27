@@ -23,6 +23,10 @@ type Row<T> = {
     [P in keyof T]: T[P] extends ColumnExpr<infer U> ? T[P] : never
 }
 
+type OrderBy<T> = {
+    [P in keyof T]?: T[P] extends OrderColumnExpr<ColumnType> ? T[P] : never
+}
+
 const tableNameMap: any = {}
 
 export function registerTable<T>(ctor: Constructor<T>, tableName: string) {
@@ -37,15 +41,24 @@ export function getTableFromType(ctor: Table<any>): string {
     return name;
 }
 
-const operators = {
-    equals: function<T, C1 extends ColumnType, C2 extends ColumnType>(c1: C1 | ColumnExpr<C1>, c2: C2 | ColumnExpr<C2>): PredicateExpr<T> {
+function createComparisonOperator(operator: ut.PredicateOperator) {
+    return function<T, C1 extends ColumnType, C2 extends ColumnType>(c1: C1 | ColumnExpr<C1>, c2: C2 | ColumnExpr<C2>): PredicateExpr<T> {
         const left = c1 instanceof ColumnExpr ? c1.expr : val(c1).expr;
         const right = c2 instanceof ColumnExpr ? c2.expr : val(c2).expr;
 
-        const pred = new ut.PredicateExpr(left, ut.PredicateOperator.equals, right)
+        const pred = new ut.PredicateExpr(left, operator, right)
         
         return new PredicateExpr<T>(pred);
     }
+}
+
+const operators = {
+    equals: createComparisonOperator(ut.PredicateOperator.equals),
+    notEquals: createComparisonOperator(ut.PredicateOperator.notEquals),
+    greaterThan: createComparisonOperator(ut.PredicateOperator.greaterThan),
+    lessThan: createComparisonOperator(ut.PredicateOperator.lessThan),
+    greaterThanOrEquals: createComparisonOperator(ut.PredicateOperator.greaterThanOrEquals),
+    lessThanOrEquals: createComparisonOperator(ut.PredicateOperator.lessThanOrEquals),
 }
 
 abstract class TypedExpr<T> {
@@ -60,16 +73,56 @@ export class ColumnExpr<C extends ColumnType> extends TypedExpr<C> {
     equals<T, C2 extends ColumnType>(c2: C2 | ColumnExpr<C2>): PredicateExpr<T> {
         return operators.equals<T, C, C2>(this, c2);
     }
+
+    notEquals<T, C2 extends ColumnType>(c2: C2 | ColumnExpr<C2>): PredicateExpr<T> {
+        return operators.notEquals<T, C, C2>(this, c2);
+    }
+
+    greaterThan<T, C2 extends ColumnType>(c2: C2 | ColumnExpr<C2>): PredicateExpr<T> {
+        return operators.greaterThan<T, C, C2>(this, c2);
+    }
+
+    lessThan<T, C2 extends ColumnType>(c2: C2 | ColumnExpr<C2>): PredicateExpr<T> {
+        return operators.lessThan<T, C, C2>(this, c2);
+    }
+
+    greaterThanOrEquals<T, C2 extends ColumnType>(c2: C2 | ColumnExpr<C2>): PredicateExpr<T> {
+        return operators.greaterThanOrEquals<T, C, C2>(this, c2);
+    }
+
+    lessThanOrEquals<T, C2 extends ColumnType>(c2: C2 | ColumnExpr<C2>): PredicateExpr<T> {
+        return operators.lessThanOrEquals<T, C, C2>(this, c2);
+    }
+
+    get asc(): OrderColumnExpr<C> {
+        return new OrderColumnExpr<C>(new ut.OrderByExpr(this.expr, 'ASC'))
+    }
+
+    get desc(): OrderColumnExpr<C> {
+        return new OrderColumnExpr<C>(new ut.OrderByExpr(this.expr, 'DESC'))
+    }
 }
 
-export class AsExpr<T extends ColumnType, name extends string> extends ColumnExpr<T> {
-    constructor(public expr: ut.Expr, public name: name) {
+export class OrderColumnExpr<C extends ColumnType> extends TypedExpr<C> {
+    constructor(public expr: ut.OrderByExpr) {
         super(expr)
     }
 }
 
-export function as<C extends ColumnType, name extends string>(expr: TypedExpr<C>, alias: name): AsExpr<C, name> {
-    return new AsExpr<C, name>(new ut.AsExpr(expr.expr, alias), alias);
+export class WindowFunctionColumnExpr<C extends ColumnType> extends ColumnExpr<C> {
+    constructor(expr: ut.Expr){
+        super(expr)
+    }
+}
+
+export class AsExpr<T extends ColumnType, name extends string> extends ColumnExpr<T> {
+    constructor(public column: ColumnExpr<T>, public name: name) {
+        super(new ut.AsExpr(column.expr, name))
+    }
+}
+
+export function as<C extends ColumnType, name extends string>(expr: ColumnExpr<C>, alias: name): AsExpr<C, name> {
+    return new AsExpr<C, name>(expr, alias);
 }
 
 export class ValueExpr<T extends ColumnType> extends ColumnExpr<T> {
@@ -86,6 +139,26 @@ export function val<T extends ColumnType>(value: T): ValueExpr<T> {
 
 export function ISNULL<C extends ColumnType>(expr: TypedExpr<C | null>, value: ValueExpr<Exclude<C, null>>): ColumnExpr<Exclude<C, null>> {
     return new ColumnExpr(new ut.ScalarFunctionExpr('ISNULL', [expr.expr, value.expr]))
+}
+
+function getOrderByExpr<T>(ordering: OrderColumnExpr<any>[]): ut.OrderByExpr {
+    var expr: ut.OrderByExpr | undefined = undefined;
+
+    ordering.forEach(c => {
+        expr = new ut.OrderByExpr(c.expr.field, c.expr.direction, expr);
+    })
+
+    if(expr === undefined){
+        throw new Error('Could not get order by expression from ' + JSON.stringify(ordering));
+    }
+
+    return expr;
+}
+
+export function ROW_NUMBER<T>(ordering: OrderColumnExpr<any>[]): WindowFunctionColumnExpr<number> {
+    const expr = getOrderByExpr(ordering);
+
+    return new WindowFunctionColumnExpr<number>(new ut.RowNumberExpr(expr));
 }
 
 function GetColumnProjectionsFromTable<T>(table: Table<T>, alias?: string | undefined): Row<T> {
@@ -160,9 +233,34 @@ function isSelectExpr<T>(input: any): input is SelectExpr<T> {
     return !!input && input['_tag'] === 'SelectExpr<T>';
 }
 
+function isWindowedFunctionCall(column: ColumnExpr<ColumnType>): boolean {
+    if(column instanceof WindowFunctionColumnExpr){
+        return true;
+    }
+
+    if(column instanceof AsExpr){
+        return isWindowedFunctionCall(column.column);
+    }
+
+    return false;
+}
+
+function hasWindowedFunction<T>(row: Row<T>){
+    for(let key in row){
+        const column = row[key];
+        const isWindowed = isWindowedFunctionCall(column);
+        if(isWindowed)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 export class SelectExpr<T> extends TypedExpr<T> {
     readonly _tag: 'SelectExpr<T>' = 'SelectExpr<T>'
-    constructor(public row: Row<T>, public expr: ut.SelectStatementExpr, public alias?: string | undefined) {
+    constructor(public row: Row<T>, public expr: ut.SelectStatementExpr) {
         super(expr)
     }
 
@@ -171,14 +269,48 @@ export class SelectExpr<T> extends TypedExpr<T> {
             throw new Error('Invalid select statement detected!');
         }
 
-        const pred = func(this.row);
+        const isWindowed = hasWindowedFunction(this.row);
+        if(!isWindowed){
+            const pred = func(this.row);
 
-        const where = ut.isWhereExpr(this.expr.where) ? 
-                        new ut.WhereExpr(new ut.AndExpr(this.expr.where.clause, pred.expr))
-                        : new ut.WhereExpr(pred.expr);
+            const where = ut.isWhereExpr(this.expr.where) ? 
+                            new ut.WhereExpr(new ut.AndExpr(this.expr.where.clause, pred.expr))
+                            : new ut.WhereExpr(pred.expr);
 
-        let expr = new ut.SelectStatementExpr(this.expr.projection, this.expr.from, where);
-        return new SelectExpr<T>(this.row, expr);
+            let expr = new ut.SelectStatementExpr(
+                            this.expr.projection, 
+                            this.expr.from, 
+                            where,
+                            this.expr.alias,
+                            this.expr.orderBy,
+                            this.expr.take
+                       );
+            return new SelectExpr<T>(this.row, expr);
+        }
+
+        const newRow = GetColumnProjectionsFromRow(this.row, this.expr.alias);
+        const pred = func(newRow);
+        const where = new ut.WhereExpr(pred.expr);
+        let innerExpr = new ut.SelectStatementExpr(
+                            this.expr.projection, 
+                            this.expr.from,
+                            undefined,
+                            this.expr.alias,
+                            this.expr.orderBy,
+                            undefined
+                        );
+
+        const newProjection = GetProjectionExprFromRow(newRow);
+        let expr = new ut.SelectStatementExpr(
+                            newProjection, 
+                            innerExpr, 
+                            where,
+                            this.expr.alias,
+                            undefined,
+                            this.expr.take
+                        );
+
+        return new SelectExpr<T>(newRow, expr);
     }
 
     select<Projection>(func: (t: Row<T>) => Row<Projection>, alias?: string | undefined): 
@@ -190,7 +322,7 @@ export class SelectExpr<T> extends TypedExpr<T> {
 
         const projection = GetProjectionExprFromRow(row);
 
-        const select = new ut.SelectStatementExpr(projection, this.expr, undefined, alias || this.alias);
+        const select = new ut.SelectStatementExpr(projection, this.expr, undefined, alias);
 
         return new SelectExpr<Projection>(row, select);
     }
@@ -222,8 +354,8 @@ export class SelectExpr<T> extends TypedExpr<T> {
 }
 
 export class OrderByExpr<T> extends SelectExpr<T> {
-    constructor(row: Row<T>, expr: ut.SelectStatementExpr, alias?: string | undefined) {
-        super(row, expr, alias)
+    constructor(row: Row<T>, expr: ut.SelectStatementExpr) {
+        super(row, expr)
     }
 
     thenBy(func: (t: Row<T>) => ColumnExpr<ColumnType>, direction?: 'ASC' | 'DESC'): OrderByExpr<T> {
@@ -502,41 +634,3 @@ export function from<T, Talias extends string >(ctor: Table<T>, alias: Talias): 
 
     return new FromExpr<T, Talias>(ctor, alias, new ut.FromExpr(tableName, alias));
 }
-
-type QueryContext = {
-    aliases: { [key: string]: string }
-}
-
-function GetNextAlias(alias: string): string {
-    if(alias.length === 1){
-        alias = alias + '1';
-        return alias;
-    }
-
-    const start = alias.substr(0, 1);
-    const rest = alias.substr(1, alias.length - 2);
-    const id = parseInt(rest, 10) || 2;
-    const newId = id + 1;
-    return start + (newId.toString())
-}
-
-function GetAliasFromTableName(tableName: string) {
-    const parts = tableName.split('.')
-    const last = parts[parts.length - 1];
-    return last.substring(0, 1).toLowerCase()
-}
-
-function insertAlias(tableName: string, ctx: QueryContext, alias?: string | undefined): string {
-    alias = alias || GetAliasFromTableName(tableName);
-    if(ctx.aliases[alias]){
-        return insertAlias(tableName, ctx, GetNextAlias(alias))
-    }
-
-    ctx.aliases[alias] = tableName;
-    return alias;
-}
-
-
-
-
-

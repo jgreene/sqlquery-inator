@@ -20,6 +20,15 @@ export class FromExpr extends Expr {
 
 export const isFromExpr = is<FromExpr>('FromExpr')
 
+export class RowNumberExpr extends Expr {
+    readonly _tag = 'RowNumberExpr'
+    constructor(public orderBy: OrderByExpr) {
+        super()
+    }
+}
+
+export const isRowNumberExpr = is<RowNumberExpr>('RowNumberExpr')
+
 export type JoinType = 'inner' | 'leftOuter' | 'rightOuter'
 
 export const JoinType = {
@@ -155,6 +164,22 @@ export class ProjectionExpr extends Expr {
 }
 
 export const isProjectionExpr = is<ProjectionExpr>('ProjectionExpr')
+
+function isWindowedFunctionCall(expr: Expr): boolean {
+    if(isRowNumberExpr(expr)){
+        return true;
+    }
+
+    if(isAsExpr(expr)){
+        return isWindowedFunctionCall(expr.left);
+    }
+
+    return false;
+}
+
+export function doesProjectionContainWindowedFunction(projection: ProjectionExpr): boolean {
+    return projection.projections.some(isWindowedFunctionCall);
+}
 
 export class StarExpr extends Expr {
     readonly _tag = 'StarExpr'

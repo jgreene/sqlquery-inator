@@ -117,7 +117,6 @@ function GetSelectSql(expr: ut.Expr, parentCtx: Context): string {
     if(!ut.isSelectStatementExpr(expr)) {
         throw new Error('Not a select expression!');
     }
-
     const ctx = { 
         parameters: parentCtx.parameters, 
         aliasCount: 0, 
@@ -128,7 +127,29 @@ function GetSelectSql(expr: ut.Expr, parentCtx: Context): string {
         getTable: parentCtx.getTable
     };
 
-    const top = expr.take ? ` top (${expr.take.take})` : '';
+    // const hasWindowedFunctionCall = ut.doesProjectionContainWindowedFunction(expr.projection);
+    // if(hasWindowedFunctionCall){
+    //     const alias = expr.alias || getTableAlias(ctx);
+    //     const newSelectExpr = new ut.SelectStatementExpr(
+    //                             expr.projection, 
+    //                             expr.from, undefined, 
+    //                             expr.alias, 
+    //                             expr.orderBy)
+    //     const newCtx = increaseIndent(ctx)
+    //     const internal = indent(GetSelectSqlInternal(newSelectExpr, ctx), newCtx);
+    //     const where = expr.where ? '\n' + toSql(expr.where, ctx) : '';
+    //     return indent(`select ${alias}.* from (\n${internal}\n) as ${alias}`, ctx);
+    // }
+
+    return GetSelectSqlInternal(expr, ctx);
+}
+
+function GetSelectSqlInternal(expr: ut.Expr, ctx: Context): string {
+    if(!ut.isSelectStatementExpr(expr)) {
+        throw new Error('Not a select expression!');
+    }
+
+    const top = expr.take ? ` top (${parseInt(expr.take.take.toString())})` : '';
 
     const alias = expr.alias || getTableAlias(ctx);
     const projections = GetProjectionSql(expr.projection, increaseIndent(ctx), expr.alias);
@@ -182,6 +203,11 @@ function toSql(expr: ut.Expr | undefined, ctx: Context): string {
 
     if(ut.isFromExpr(expr)) {
         return GetFromSql(expr, ctx);
+    }
+
+    if(ut.isRowNumberExpr(expr)) {
+        const orderBy = toSql(expr.orderBy, ctx);
+        return `ROW_NUMBER() OVER (ORDER BY ${orderBy})`;
     }
 
     if(ut.isJoinExpr(expr)){
@@ -340,4 +366,17 @@ export function toQuery(schema: DBSchema, expr: ut.Expr): query.SqlQuery {
         parameters: ctx.parameters
     }
 
+}
+
+function GetNextAlias(alias: string): string {
+    if(alias.length === 1){
+        alias = alias + '1';
+        return alias;
+    }
+
+    const start = alias.substr(0, 1);
+    const rest = alias.substr(1, alias.length - 2);
+    const id = parseInt(rest, 10) || 2;
+    const newId = id + 1;
+    return start + (newId.toString())
 }

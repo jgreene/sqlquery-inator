@@ -1,10 +1,10 @@
-import { expect } from 'chai';
+import { expect, use } from 'chai';
 import 'mocha';
 
 import * as t from 'io-ts'
 import * as tdc from 'io-ts-derive-class'
 
-import { registerTable, from, ISNULL, val } from '../index';
+import { registerTable, from, ISNULL, val, ROW_NUMBER } from '../index';
 import * as query from '../sqlquery';
 
 import { toQuery } from './mssql'
@@ -154,7 +154,6 @@ const dbschema: DBSchema = {
 function compare(actual: string, expected: string){
     actual = actual.trim()
     expected = expected.trim()
-
     return expect(actual).eq(expected);
 }
 
@@ -440,5 +439,90 @@ order by p.[ID] ASC, p.[FirstName] DESC`)
     p.[LastName]
 from [sqlquery-inator].[dbo].[Person] as p`);
     })
+
+    it('subquery within subquery formats correctly', async () => {
+        const subquery = from(Person, 'p').selectAll().where(p => p.FirstName.equals('Heinz'))
+        const subquery2 = subquery.select(p => { return { ID: p.ID, FirstName: p.FirstName } })
+
+        const query = from(Person, 'p')
+                        .leftOuterJoin(Address, 'a').on(r => r.p.ID.equals(r.a.PersonID))
+                        .leftOuterJoin(subquery2, 'p2').on(r => r.a.PersonID.equals(r.p2.ID))
+                        .select(r => { 
+                            return { ...r.p, StreetAddress1: r.a.StreetAddress1, SecondFirstName: r.p2.FirstName }
+                        });
+
+        const result = toQuery(dbschema, query.expr);
+
+        compare(result.sql, 
+`select
+    p.[ID],
+    p.[FirstName],
+    p.[LastName],
+    a.[StreetAddress1],
+    (p2.[FirstName]) as 'SecondFirstName'
+from [sqlquery-inator].[dbo].[Person] as p
+left outer join [sqlquery-inator].[dbo].[Address] as a on p.[ID] = a.[PersonID]
+left outer join (
+    select
+        [ID],
+        [FirstName]
+    from (
+        select
+            p.[ID],
+            p.[FirstName],
+            p.[LastName]
+        from [sqlquery-inator].[dbo].[Person] as p
+        where p.[FirstName] = @v
+    ) as ta1
+) as p2 on a.[PersonID] = p2.[ID]`)
+    });
+
+    it('Can use ROW_NUMBER with orderby', async () => {
+        const query = from(Person, 'p').select(p => { 
+            return {
+                ...p,
+                RowNumber: ROW_NUMBER([p.ID.asc])
+            }
+        })
+
+        const result = toQuery(dbschema, query.expr);
+        compare(result.sql, 
+`select
+    p.[ID],
+    p.[FirstName],
+    p.[LastName],
+    (ROW_NUMBER() OVER (ORDER BY p.[ID] ASC)) as 'RowNumber'
+from [sqlquery-inator].[dbo].[Person] as p`)
+
+    });
+
+    it('Can skip records with ROW_NUMBER', async () => {
+        const query = from(Person, 'p').select(p => { 
+            return {
+                ...p,
+                RowNumber: ROW_NUMBER([p.ID.asc])
+            }
+        }).where(p => p.RowNumber.greaterThan(10))
+
+        const result = toQuery(dbschema, query.expr);
+
+        compare(result.sql, 
+`select
+    [ID],
+    [FirstName],
+    [LastName],
+    [RowNumber]
+from (
+    select
+        p.[ID],
+        p.[FirstName],
+        p.[LastName],
+        (ROW_NUMBER() OVER (ORDER BY p.[ID] ASC)) as 'RowNumber'
+    from [sqlquery-inator].[dbo].[Person] as p
+) as ta1
+where [RowNumber] > @v`)
+    })
+
+    
 });
 
