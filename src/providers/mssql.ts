@@ -136,6 +136,7 @@ function GetSelectSqlInternal(expr: ut.Expr, ctx: Context): string {
     }
 
     const top = expr.take ? ` top (${parseInt(expr.take.take.toString())})` : '';
+    const distinct = expr.distinct === true ? ` distinct` : '';
 
     const alias = expr.alias || getTableAlias(ctx);
     const projections = GetProjectionSql(expr.projection, increaseIndent(ctx), expr.alias);
@@ -143,8 +144,7 @@ function GetSelectSqlInternal(expr: ut.Expr, ctx: Context): string {
     const where = expr.where ? '\n' + toSql(expr.where, ctx) : '';
     const orderBy = expr.orderBy ? '\norder by ' + toSql(expr.orderBy, ctx) : ''
 
-    const select = `select${top}\n`;
-    
+    const select = `select${distinct}${top}\n`;
     
     if(!isFromChildSelect){
         const from = expr.from ? '\n' + toSql(expr.from, ctx) : '';

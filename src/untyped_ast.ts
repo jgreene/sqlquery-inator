@@ -174,22 +174,6 @@ export class ProjectionExpr extends Expr {
 
 export const isProjectionExpr = is<ProjectionExpr>('ProjectionExpr')
 
-function isWindowedFunctionCall(expr: Expr): boolean {
-    if(isRowNumberExpr(expr)){
-        return true;
-    }
-
-    if(isAsExpr(expr)){
-        return isWindowedFunctionCall(expr.left);
-    }
-
-    return false;
-}
-
-export function doesProjectionContainWindowedFunction(projection: ProjectionExpr): boolean {
-    return projection.projections.some(isWindowedFunctionCall);
-}
-
 export class StarExpr extends Expr {
     readonly _tag = 'StarExpr'
 

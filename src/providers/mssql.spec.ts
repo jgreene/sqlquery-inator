@@ -642,5 +642,34 @@ from (
 join [sqlquery-inator].[dbo].[Address] as a on p2.[ID] = a.[PersonID]
     `)
     })
+
+    it('Can select distinct', async () => {
+        const query = from(Person, 'p')
+                        .select(p => { return { FirstName: p.FirstName } })
+                        .distinct();
+
+        const result = toQuery(dbschema, query.expr);
+
+        compare(result.sql,
+`select distinct
+    p.[FirstName]
+from [sqlquery-inator].[dbo].[Person] as p
+`)
+    })
+
+    it('Can select distinct', async () => {
+        const query = from(Person, 'p')
+                        .select(p => { return { FirstName: p.FirstName } })
+                        .distinct()
+                        .take(100);
+
+        const result = toQuery(dbschema, query.expr);
+
+        compare(result.sql,
+`select distinct top (100)
+    p.[FirstName]
+from [sqlquery-inator].[dbo].[Person] as p
+`)
+    })
 });
 

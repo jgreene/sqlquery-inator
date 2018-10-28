@@ -7,12 +7,8 @@ export type ColumnType = ut.ColumnType
 type Constructor<T> = new (...args: any[]) => T
 type Table<T> = Constructor<tdc.ITyped<any, T, any, t.mixed>>
 
-type ToRow<T> = {
-    [P in keyof T]: T[P] extends ColumnType ? ColumnExpr<T[P]> : T[P] extends ColumnExpr<infer U> ? T[P] : never
-}
-
 type ToOuterRow<T> = {
-    [P in keyof T]: T[P] extends ColumnType ? ColumnExpr<T[P] | null> : never
+    [P in keyof T]: T[P] extends ColumnType ? ColumnExpr<T[P] | null> : T[P] extends ColumnExpr<infer U> ? ColumnExpr<U | null> : never
 }
 
 type FromRow<T> = {
@@ -20,7 +16,7 @@ type FromRow<T> = {
 }
 
 type Row<T> = {
-    [P in keyof T]: T[P] extends ColumnExpr<infer U> ? T[P] : never
+    [P in keyof T]: T[P] extends ColumnExpr<infer U> ? T[P] : T[P] extends ColumnType ? ColumnExpr<T[P]> : never
 }
 
 const tableNameMap: any = {}
@@ -489,8 +485,8 @@ export class InnerJoinBuilderStart<L, LAlias extends string, R, RAlias extends s
         LAlias, 
         R, 
         RAlias, 
-        { [K in LAlias]: ToRow<L> } & { [K in RAlias]: ToRow<R>}, 
-        { [K in LAlias]: ToRow<L> } & { [K in RAlias]: ToRow<R>}
+        { [K in LAlias]: Row<L> } & { [K in RAlias]: Row<R>}, 
+        { [K in LAlias]: Row<L> } & { [K in RAlias]: Row<R>}
     >
 {
     constructor(
@@ -509,8 +505,8 @@ export class LeftOuterJoinBuilderStart<L, LAlias extends string, R, RAlias exten
         LAlias, 
         R, 
         RAlias, 
-        { [K in LAlias]: ToRow<L> } & { [K in RAlias]: ToRow<R>}, 
-        { [K in LAlias]: ToRow<L> } & { [K in RAlias]: ToOuterRow<R>}
+        { [K in LAlias]: Row<L> } & { [K in RAlias]: Row<R>}, 
+        { [K in LAlias]: Row<L> } & { [K in RAlias]: ToOuterRow<R>}
     >
 {
     constructor(
@@ -529,8 +525,8 @@ export class RightOuterJoinBuilderStart<L, LAlias extends string, R, RAlias exte
         LAlias, 
         R, 
         RAlias, 
-        { [K in LAlias]: ToRow<L> } & { [K in RAlias]: ToRow<R>}, 
-        { [K in LAlias]: ToOuterRow<L> } & { [K in RAlias]: ToRow<R>}
+        { [K in LAlias]: Row<L> } & { [K in RAlias]: Row<R>}, 
+        { [K in LAlias]: ToOuterRow<L> } & { [K in RAlias]: Row<R>}
     >
 {
     constructor(
@@ -601,14 +597,14 @@ abstract class JoinBuilder<L, R, RAlias extends string, T, TResult> {
 }
 
 export class InnerJoinBuilder<L, R, RAlias extends string> extends 
-    JoinBuilder<L, R, RAlias, L & { [K in RAlias]: ToRow<R>}, L & { [K in RAlias]: ToRow<R>}> {
+    JoinBuilder<L, R, RAlias, L & { [K in RAlias]: Row<R>}, L & { [K in RAlias]: Row<R>}> {
     constructor(public aliases: L, public parent: ut.Expr, public right: SelectExpr<R> | FromExpr<R, RAlias> | Table<R>, public ralias: RAlias){
         super(ut.JoinType.inner, aliases, parent, right, ralias);
     }
 }
 
 export class LeftOuterJoinBuilder<L, R, RAlias extends string> extends 
-JoinBuilder<L, R, RAlias, L & { [K in RAlias]: ToRow<R>}, L & { [K in RAlias]: ToOuterRow<R>}> {
+JoinBuilder<L, R, RAlias, L & { [K in RAlias]: Row<R>}, L & { [K in RAlias]: ToOuterRow<R>}> {
     constructor(public aliases: L, public parent: ut.Expr, public right: SelectExpr<R> | FromExpr<R, RAlias> | Table<R>, public ralias: RAlias){
         super(ut.JoinType.leftOuter, aliases, parent, right, ralias);
     }
@@ -619,9 +615,9 @@ JoinBuilder<
     L, 
     R, 
     RAlias, 
-    L & { [K in RAlias]: ToRow<R>}, 
+    L & { [K in RAlias]: Row<R>}, 
     { [K in keyof L]: { [P in keyof L[K]]: L[K][P] extends ColumnExpr<infer U> ? ColumnExpr<U | null> : never } } 
-        & { [K in RAlias]: ToRow<R>}
+        & { [K in RAlias]: Row<R>}
     > {
     constructor(public aliases: L, public parent: ut.Expr, public right: SelectExpr<R> | FromExpr<R, RAlias> | Table<R>, public ralias: RAlias){
         super(ut.JoinType.rightOuter, aliases, parent, right, ralias);
@@ -670,11 +666,11 @@ export class FromExpr<T, Talias extends string> extends TypedExpr<T> {
         super(expr)
     }
 
-    selectAll<P extends ToRow<T>>() {
+    selectAll<P extends Row<T>>() {
         return this.select<P>((p: any) => { return { ...p } });
     }
 
-    select<Projection>(func: (r: ToRow<T>) => Row<Projection>): 
+    select<Projection>(func: (r: Row<T>) => Row<Projection>): 
         SelectExpr<Projection>
     {
         if(this.source instanceof SelectExpr){
