@@ -7,17 +7,22 @@ export type ColumnType = ut.ColumnType
 type Constructor<T> = new (...args: any[]) => T
 type Table<T> = Constructor<tdc.ITyped<any, T, any, t.mixed>>
 
+type Row<T> = {
+    [P in keyof T]: T[P] extends ColumnExpr<infer U> ? T[P] : T[P] extends ColumnType ? ColumnExpr<T[P]> : never
+}
+
 type ToOuterRow<T> = {
     [P in keyof T]: T[P] extends ColumnType ? ColumnExpr<T[P] | null> : T[P] extends ColumnExpr<infer U> ? ColumnExpr<U | null> : never
+}
+
+type AggregateRow<T> = {
+    [P in keyof T]: T[P] extends AggregateColumnExpr<infer U> ? T[P] : never
 }
 
 type FromRow<T> = {
     [P in keyof T]: T[P] extends ColumnExpr<infer U> ? U : never
 }
 
-type Row<T> = {
-    [P in keyof T]: T[P] extends ColumnExpr<infer U> ? T[P] : T[P] extends ColumnType ? ColumnExpr<T[P]> : never
-}
 
 const tableNameMap: any = {}
 
@@ -95,6 +100,18 @@ export class ColumnExpr<C extends ColumnType> extends TypedExpr<C> {
     }
 }
 
+export class AggregateColumnExpr<C extends ColumnType> extends ColumnExpr<C> {
+    /* forcing the type checker to not assume AggregateColumnExpr and ColumnExpr are equivalent */
+    public isAggregateColumn: boolean = true
+    constructor(expr: ut.Expr) {
+        super(expr)
+    }
+}
+
+function toAggregateColumn<C extends ColumnType>(column: ColumnExpr<C>): AggregateColumnExpr<C> {
+    return new AggregateColumnExpr<C>(column.expr);
+}
+
 export class OrderColumnExpr<C extends ColumnType> extends TypedExpr<C> {
     constructor(public expr: ut.OrderByExpr) {
         super(expr)
@@ -132,6 +149,27 @@ export function val<T extends ColumnType>(value: T): ValueExpr<T> {
 export function ISNULL<C extends ColumnType>(expr: TypedExpr<C | null>, value: ValueExpr<Exclude<C, null>>): ColumnExpr<Exclude<C, null>> {
     return new ColumnExpr(new ut.ScalarFunctionExpr('ISNULL', [expr.expr, value.expr]))
 }
+
+
+
+export function COUNT<C extends ColumnType>(column?: ColumnExpr<C> | undefined): AggregateColumnExpr<number> {
+    if(column === undefined){
+        return new AggregateColumnExpr(new ut.AggregateFunctionExpr('COUNT', false, new ut.StarExpr));
+    }
+    
+    return new AggregateColumnExpr(new ut.AggregateFunctionExpr('COUNT', true, column.expr));
+};
+
+function createAggregateFunction<C extends ColumnType>(name: string){
+    return function(column: ColumnExpr<C>, distinct: boolean = false): AggregateColumnExpr<number> {
+        return new AggregateColumnExpr(new ut.AggregateFunctionExpr(name, distinct, column.expr));
+    };
+}
+
+export const AVG = createAggregateFunction<number | null>('AVG')
+export const SUM = createAggregateFunction<number | null>('SUM')
+export const MAX = createAggregateFunction<number | null>('MAX')
+export const MIN = createAggregateFunction<number | null>('MIN')
 
 function getOrderByExpr<T>(ordering: OrderColumnExpr<any>[]): ut.OrderByExpr {
     var expr: ut.OrderByExpr | undefined = undefined;
@@ -180,7 +218,7 @@ function GetColumnProjectionsFromRow<T>(row: Row<T>, alias?: string | undefined)
     return projection;
 }
 
-function GetProjectionExprFromRow<T>(row: Row<T>): ut.ProjectionExpr {
+function GetProjectionExprFromRow<T>(row: Row<T> | AggregateRow<T>): ut.ProjectionExpr {
     let keys = Object.keys(row);
     if(keys.length === 0){
         throw new Error('Cannot select 0 columns!');
@@ -344,27 +382,58 @@ export class SelectExpr<T> extends TypedExpr<T> {
 
         return new SelectExpr<T>(this.row, select);
     }
+
+    groupBy<G>(func: (t: Row<T>) => Row<G>): GroupByExpr<G> {
+        const row = func(this.row);
+        const projection = GetProjectionExprFromRow(row);
+
+        const select = new ut.SelectStatementExpr(
+            {
+                ...this.expr,
+                groupBy: new ut.GroupByExpr(projection)
+            });
+
+        return new GroupByExpr<G>(row, select)
+    }
+
+    count(func?: undefined | ((t: Row<T>) => ColumnExpr<ColumnType>)): SelectExpr<{ count: number}> {
+        if(func === undefined) {
+            return this.select(r => { return { count: COUNT()}});
+        }
+
+        const newRow = GetColumnProjectionsFromRow(this.row);
+
+        const column = func(newRow);
+        return this.select(r => { return { count: COUNT(column)}});
+    }
 }
 
-export class SelectAliasExpr<T, Talias extends string> extends SelectExpr<T> {
-    constructor(public row: Row<T>, public expr: ut.SelectStatementExpr, public alias: Talias) {
-        super(row, expr)
+function toAggregateRow<T>(row: Row<T>): AggregateRow<T> {
+    var res: any = {};
+    for(let key in row){
+        let column = row[key];
+        res[key] = toAggregateColumn(column);
     }
 
-    join<R, Ralias extends string>(joinedTable: SelectExpr<R> | Table<R>, ralias: Ralias): InnerJoinBuilderStart<T, Talias, R, Ralias> {
-        return this.innerJoin(joinedTable, ralias);
+    return res;
+}
+
+export class GroupByExpr<T> extends TypedExpr<T> {
+    constructor(public row: Row<T>, expr: ut.Expr){
+        super(expr)
     }
 
-    innerJoin<R, Ralias extends string>(joinedTable: SelectExpr<R> | Table<R>, ralias: Ralias): InnerJoinBuilderStart<T, Talias, R, Ralias> {
-        return new InnerJoinBuilderStart<T, Talias, R, Ralias>(this, this.alias, joinedTable, ralias);
-    }
+    select<Projection>(func: (t: AggregateRow<T>) => AggregateRow<Projection>): 
+        SelectExpr<Projection>
+    {
+        const aggRow = toAggregateRow(this.row);
+        const row = func(aggRow);
 
-    leftOuterJoin<R, Ralias extends string>(joinedTable: SelectExpr<R> | Table<R>, ralias: Ralias): LeftOuterJoinBuilderStart<T, Talias, R, Ralias> {
-        return new LeftOuterJoinBuilderStart<T, Talias, R, Ralias>(this, this.alias, joinedTable, ralias);
-    }
+        const projection = GetProjectionExprFromRow(row);
 
-    rightOuterJoin<R, Ralias extends string>(joinedTable: SelectExpr<R> | Table<R>, ralias: Ralias): RightOuterJoinBuilderStart<T, Talias, R, Ralias> {
-        return new RightOuterJoinBuilderStart<T, Talias, R, Ralias>(this, this.alias, joinedTable, ralias);
+        const select = new ut.SelectStatementExpr({ ...this.expr, projection: projection });
+
+        return new SelectExpr<Projection>(row as any, select);
     }
 }
 
@@ -424,10 +493,10 @@ abstract class JoinBuilderStart<L, LAlias extends string, R, RAlias extends stri
 
             if(this.right instanceof FromExpr){
                 if(this.right.source instanceof SelectExpr){
-                    return GetColumnProjectionsFromRow(this.right.source.row, this.lalias)
+                    return GetColumnProjectionsFromRow(this.right.source.row, this.ralias)
                 }
 
-                return GetColumnProjectionsFromTable(this.right.source, this.lalias);
+                return GetColumnProjectionsFromTable(this.right.source, this.ralias);
             }
 
             return GetColumnProjectionsFromTable(this.right, this.ralias);
@@ -473,7 +542,13 @@ abstract class JoinBuilderStart<L, LAlias extends string, R, RAlias extends stri
         })();
 
         const predicate = func(aliases as T);
-        const joinExpr = new ut.JoinExpr(leftSource, this.joinType, rightSource, this.ralias, predicate.expr);
+        const joinExpr = new ut.JoinExpr({
+            parent: leftSource,
+            joinType: this.joinType,
+            joinSource: rightSource,
+            alias: this.ralias,
+            on: predicate.expr
+        })
 
         return new JoinExpr<TResult>(aliases, joinExpr);
     }
@@ -543,7 +618,7 @@ abstract class JoinBuilder<L, R, RAlias extends string, T, TResult> {
     constructor(
         public joinType: ut.JoinType, 
         public aliases: L, 
-        public parent: ut.Expr, 
+        public parent: ut.JoinExpr, 
         public right: SelectExpr<R> | FromExpr<R, RAlias>  | Table<R>, 
         public ralias: RAlias
     ){}
@@ -590,7 +665,18 @@ abstract class JoinBuilder<L, R, RAlias extends string, T, TResult> {
 
         const predicate = func(aliases as T);
 
-        const joinExpr = new ut.JoinExpr(this.parent, this.joinType, rightSource, this.ralias, predicate.expr);
+        const parent = this.parent.where 
+                            ? new ut.JoinExpr({ ...this.parent, where: undefined }) 
+                            : this.parent
+
+        const joinExpr = new ut.JoinExpr({
+            parent: parent,
+            joinType: this.joinType,
+            joinSource: rightSource,
+            alias: this.ralias,
+            on: predicate.expr,
+            where: this.parent.where
+        })
 
         return new JoinExpr<TResult>(aliases, joinExpr);
     }
@@ -598,14 +684,14 @@ abstract class JoinBuilder<L, R, RAlias extends string, T, TResult> {
 
 export class InnerJoinBuilder<L, R, RAlias extends string> extends 
     JoinBuilder<L, R, RAlias, L & { [K in RAlias]: Row<R>}, L & { [K in RAlias]: Row<R>}> {
-    constructor(public aliases: L, public parent: ut.Expr, public right: SelectExpr<R> | FromExpr<R, RAlias> | Table<R>, public ralias: RAlias){
+    constructor(public aliases: L, public parent: ut.JoinExpr, public right: SelectExpr<R> | FromExpr<R, RAlias> | Table<R>, public ralias: RAlias){
         super(ut.JoinType.inner, aliases, parent, right, ralias);
     }
 }
 
 export class LeftOuterJoinBuilder<L, R, RAlias extends string> extends 
 JoinBuilder<L, R, RAlias, L & { [K in RAlias]: Row<R>}, L & { [K in RAlias]: ToOuterRow<R>}> {
-    constructor(public aliases: L, public parent: ut.Expr, public right: SelectExpr<R> | FromExpr<R, RAlias> | Table<R>, public ralias: RAlias){
+    constructor(public aliases: L, public parent: ut.JoinExpr, public right: SelectExpr<R> | FromExpr<R, RAlias> | Table<R>, public ralias: RAlias){
         super(ut.JoinType.leftOuter, aliases, parent, right, ralias);
     }
 }
@@ -619,13 +705,13 @@ JoinBuilder<
     { [K in keyof L]: { [P in keyof L[K]]: L[K][P] extends ColumnExpr<infer U> ? ColumnExpr<U | null> : never } } 
         & { [K in RAlias]: Row<R>}
     > {
-    constructor(public aliases: L, public parent: ut.Expr, public right: SelectExpr<R> | FromExpr<R, RAlias> | Table<R>, public ralias: RAlias){
+    constructor(public aliases: L, public parent: ut.JoinExpr, public right: SelectExpr<R> | FromExpr<R, RAlias> | Table<R>, public ralias: RAlias){
         super(ut.JoinType.rightOuter, aliases, parent, right, ralias);
     }
 }
 
 export class JoinExpr<T> extends TypedExpr<T> {
-    constructor(private aliases: T, expr: ut.Expr){
+    constructor(private aliases: T, public expr: ut.JoinExpr){
         super(expr);
     }
 
@@ -656,6 +742,38 @@ export class JoinExpr<T> extends TypedExpr<T> {
 
         return new SelectExpr<Projection>(row, select);
     }
+
+    where<P extends Row<T>>(func: (t: T) => PredicateExpr<T>): JoinExpr<T> {
+
+        const pred = func(this.aliases);
+
+        const where = ut.isWhereExpr(this.expr.where) ? 
+                            new ut.WhereExpr(new ut.AndExpr(this.expr.where.clause, pred.expr))
+                            : new ut.WhereExpr(pred.expr);
+
+        const joinExpr = new ut.JoinExpr({
+            ...this.expr,
+            where: where
+        });
+        
+        return new JoinExpr<T>(this.aliases, joinExpr);
+    }
+    
+
+    // groupBy<G>(func: (t: T) => Row<G>): GroupByExpr<G> {
+    //     const row = func(this.aliases);
+    //     const projection = GetProjectionExprFromRow(row);
+
+    //     const select = new ut.SelectStatementExpr({ projection: projection, from: this.expr});
+
+    //     const select = new ut.SelectStatementExpr(
+    //         {
+    //             ...this.expr,
+    //             groupBy: new ut.GroupByExpr(projection)
+    //         });
+
+    //     return new GroupByExpr<G>(row, select)
+    // }
 }
 
 export class FromExpr<T, Talias extends string> extends TypedExpr<T> {
@@ -664,6 +782,10 @@ export class FromExpr<T, Talias extends string> extends TypedExpr<T> {
         public alias: Talias, 
         public expr: ut.FromSelectExpr | ut.FromExpr) {
         super(expr)
+    }
+
+    where<P extends Row<T>>(func: (t: Row<P>) => PredicateExpr<T>): SelectExpr<P> {
+        return this.selectAll<P>().where(t => func(t));
     }
 
     selectAll<P extends Row<T>>() {

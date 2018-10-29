@@ -100,8 +100,9 @@ function GetJoinSql(expr: ut.Expr, ctx: Context): string {
     })();
 
     const predicateSql = toSql(expr.on, ctx);
+    const where = expr.where ? '\n' + toSql(expr.where, ctx) : '';
     
-    return `${parentSql}\n${joinTypeSql} ${joinSourceSql} as ${expr.alias} on ${predicateSql}`
+    return `${parentSql}\n${joinTypeSql} ${joinSourceSql} as ${expr.alias} on ${predicateSql}${where}`
 }
 
 function GetProjectionSql(expr: ut.Expr, ctx: Context, alias?: string | undefined) {
@@ -142,20 +143,21 @@ function GetSelectSqlInternal(expr: ut.Expr, ctx: Context): string {
     const projections = GetProjectionSql(expr.projection, increaseIndent(ctx), expr.alias);
     const isFromChildSelect = ut.isSelectStatementExpr(expr.from)
     const where = expr.where ? '\n' + toSql(expr.where, ctx) : '';
+    const groupBy = expr.groupBy ? '\n' + toSql(expr.groupBy, ctx) : '';
     const orderBy = expr.orderBy ? '\norder by ' + toSql(expr.orderBy, ctx) : ''
 
     const select = `select${distinct}${top}\n`;
     
     if(!isFromChildSelect){
         const from = expr.from ? '\n' + toSql(expr.from, ctx) : '';
-        return `${select}${projections}${from}${where}${orderBy}`;
+        return `${select}${projections}${from}${where}${groupBy}${orderBy}`;
     }
 
     const innerCtx = increaseIndent(ctx);
     const sourceSql = indent(toSql(expr.from, ctx), innerCtx);
     
     const source = `(\n${sourceSql}\n) as ${alias}`
-    return `${select}${projections}\nfrom ${source}${where}${orderBy}`;
+    return `${select}${projections}\nfrom ${source}${where}${groupBy}${orderBy}`;
 }
 
 function GetOrderBySql(expr: ut.Expr | undefined, ctx: Context): string {
@@ -189,12 +191,24 @@ function toSql(expr: ut.Expr | undefined, ctx: Context): string {
         return `[${table.name.db_name}].[${table.name.schema}].[${table.name.name}]`;
     }
 
+    if(ut.isGroupByExpr(expr)){
+        const projection = GetProjectionSql(expr.projection, ctx);
+        return `group by ${projection}`
+    }
+
     if(ut.isOrderByExpr(expr)){
         return GetOrderBySql(expr, ctx);
     }
 
     if(ut.isFromExpr(expr)) {
         return GetFromSql(expr, ctx);
+    }
+
+    if(ut.isAggregateFunctionExpr(expr)) {
+        const arg = toSql(expr.arg, ctx);
+        const distinct = expr.distinct ? 'DISTINCT ' : ''
+
+        return `${expr.name}(${distinct}${arg})`;
     }
 
     if(ut.isRowNumberExpr(expr)) {

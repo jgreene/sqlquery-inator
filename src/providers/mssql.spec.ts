@@ -4,7 +4,7 @@ import 'mocha';
 import * as t from 'io-ts'
 import * as tdc from 'io-ts-derive-class'
 
-import { registerTable, from, ISNULL, val, ROW_NUMBER } from '../index';
+import { registerTable, from, ISNULL, val, ROW_NUMBER, COUNT, AVG, MAX, MIN, SUM } from '../index';
 import * as query from '../sqlquery';
 
 import { toQuery } from './mssql'
@@ -284,6 +284,24 @@ from (
 from [sqlquery-inator].[dbo].[Person] as p
 join [sqlquery-inator].[dbo].[Address] as a on p.[ID] = a.[PersonID]
 join [sqlquery-inator].[dbo].[Person] as p2 on p2.[ID] = p.[ID]`)
+    });
+
+    it('Join with where clause', async () => {
+        const query = from(Person, 'p')
+                        .join(Person, 'p2').on(r => r.p.ID.equals(r.p2.ID))
+                        .select(r => ({ ...r.p}))
+                        .where(r => r.FirstName.equals('Heinz'))
+
+        const result = toQuery(dbschema, query.expr);
+        
+        compare(result.sql,
+`select
+    p.[ID],
+    p.[FirstName],
+    p.[LastName]
+from [sqlquery-inator].[dbo].[Person] as p
+join [sqlquery-inator].[dbo].[Person] as p2 on p.[ID] = p2.[ID]
+where p.[FirstName] = @v`)
     });
 
     it('Select can use spread operator and delete to return desired results', async () => {
@@ -657,7 +675,7 @@ from [sqlquery-inator].[dbo].[Person] as p
 `)
     })
 
-    it('Can select distinct', async () => {
+    it('Can select distinct with take', async () => {
         const query = from(Person, 'p')
                         .select(p => { return { FirstName: p.FirstName } })
                         .distinct()
@@ -670,6 +688,205 @@ from [sqlquery-inator].[dbo].[Person] as p
     p.[FirstName]
 from [sqlquery-inator].[dbo].[Person] as p
 `)
+    })
+
+    it('Can GroupBy FirstName and count', async () => {
+        const query = from(Person, 'p')
+                        .selectAll()
+                        .groupBy(r => { return { FirstName: r.FirstName } })
+                        .select(r => { return { FirstName: r.FirstName, count: COUNT() }})
+                        
+
+        const result = toQuery(dbschema, query.expr); 
+        
+        compare(result.sql,
+`select
+    p.[FirstName],
+    (COUNT(*)) as 'count'
+from [sqlquery-inator].[dbo].[Person] as p
+group by p.[FirstName]`)
+    })
+
+    it('Can select count(*)', async () => {
+        const query = from(Person, 'p')
+                        .selectAll()
+                        .where(p => p.FirstName.equals('Heinz'))
+                        .count()
+                        
+
+        const result = toQuery(dbschema, query.expr);
+        
+        compare(result.sql,
+`select
+    (COUNT(*)) as 'count'
+from (
+    select
+        p.[ID],
+        p.[FirstName],
+        p.[LastName]
+    from [sqlquery-inator].[dbo].[Person] as p
+    where p.[FirstName] = @v
+) as ta1
+`)
+    })
+
+    it('Can select distinct column count', async () => {
+        const query = from(Person, 'p')
+                        .selectAll()
+                        .count(p => p.FirstName)
+                        
+
+        const result = toQuery(dbschema, query.expr);
+
+        compare(result.sql,
+`select
+    (COUNT(DISTINCT [FirstName])) as 'count'
+from (
+    select
+        p.[ID],
+        p.[FirstName],
+        p.[LastName]
+    from [sqlquery-inator].[dbo].[Person] as p
+) as ta1`)
+    })
+
+    it('Can use AVG', async () => {
+        const query = from(Person, 'p')
+                        .select(p => { return { avg: AVG(p.ID) }});
+                        
+
+        const result = toQuery(dbschema, query.expr);
+
+        compare(result.sql,
+`select
+    (AVG(p.[ID])) as 'avg'
+from [sqlquery-inator].[dbo].[Person] as p`)
+    })
+
+    it('Can use SUM', async () => {
+        const query = from(Person, 'p')
+                        .select(p => { return { sum: SUM(p.ID) }});
+                        
+
+        const result = toQuery(dbschema, query.expr);
+
+        compare(result.sql,
+`select
+    (SUM(p.[ID])) as 'sum'
+from [sqlquery-inator].[dbo].[Person] as p`)
+    })
+
+    it('Can use MAX', async () => {
+        const query = from(Person, 'p')
+                        .select(p => ({ max: MAX(p.ID) }));
+                        
+
+        const result = toQuery(dbschema, query.expr);
+
+        compare(result.sql,
+`select
+    (MAX(p.[ID])) as 'max'
+from [sqlquery-inator].[dbo].[Person] as p`)
+    })
+
+    it('Can use MIN', async () => {
+        const query = from(Person, 'p')
+                        .select(p => ({ min: MIN(p.ID) }));
+                        
+
+        const result = toQuery(dbschema, query.expr);
+
+        compare(result.sql,
+`select
+    (MIN(p.[ID])) as 'min'
+from [sqlquery-inator].[dbo].[Person] as p`)
+    })
+
+    it('Can use where clause on join', async () => {
+        const query = from(Person, 'p')
+                        .join(Person, 'p2').on(r => r.p.ID.equals(r.p2.ID))
+                        .where(r => r.p.FirstName.equals('Heinz'))
+                        .select(r => ({ ...r.p}))
+
+        const result = toQuery(dbschema, query.expr);
+        
+        compare(result.sql,
+`select
+    p.[ID],
+    p.[FirstName],
+    p.[LastName]
+from [sqlquery-inator].[dbo].[Person] as p
+join [sqlquery-inator].[dbo].[Person] as p2 on p.[ID] = p2.[ID]
+where p.[FirstName] = @v`)
+    })
+
+    it('Can use where clause in between joins', async () => {
+        const query = from(Person, 'p')
+                        .join(Person, 'p2').on(r => r.p.ID.equals(r.p2.ID))
+                        .where(r => r.p.FirstName.equals('Heinz'))
+                        .join(Person, 'p3').on(r => r.p2.ID.equals(r.p.ID))
+                        .where(r => r.p3.LastName.equals('Doofenschmirtz'))
+                        .select(r => ({ ...r.p}))
+
+        const result = toQuery(dbschema, query.expr);
+        
+        compare(result.sql,
+`select
+    p.[ID],
+    p.[FirstName],
+    p.[LastName]
+from [sqlquery-inator].[dbo].[Person] as p
+join [sqlquery-inator].[dbo].[Person] as p2 on p.[ID] = p2.[ID]
+join [sqlquery-inator].[dbo].[Person] as p3 on p2.[ID] = p.[ID]
+where p.[FirstName] = @v AND p3.[LastName] = @v0`)
+    })
+
+    it('Can write complex query and get expected results', async () => {
+        const subquery = from(Person, 'p')
+                        .selectAll()
+                        .where(p => p.FirstName.equals('Heinz'))
+
+        const subquery2 = from(Address, 'a')
+                            .selectAll()
+                            .where(a => a.StreetAddress1.equals('Evil Incorporated'))
+        
+        const query = from(Person, 'p')
+                        .join(subquery, 'p2').on(r => r.p.ID.equals(r.p2.ID))
+                        .join(subquery2, 'a2').on(r => r.a2.PersonID.equals(r.p.ID))
+                        .join(Address, 'a').on(r => r.a2.ID.equals(r.a.ID))
+                        .where(r => r.p.FirstName.equals('Heinz'))
+                        .select(r => ({ ...r.p2}))
+                        
+                        
+
+        const result = toQuery(dbschema, query.expr);
+        console.log(result.sql)
+
+        compare(result.sql,
+`select
+    p2.[ID],
+    p2.[FirstName],
+    p2.[LastName]
+from [sqlquery-inator].[dbo].[Person] as p
+join (
+    select
+        p.[ID],
+        p.[FirstName],
+        p.[LastName]
+    from [sqlquery-inator].[dbo].[Person] as p
+    where p.[FirstName] = @v
+) as p2 on p.[ID] = p2.[ID]
+join (
+    select
+        a.[ID],
+        a.[PersonID],
+        a.[StreetAddress1],
+        a.[StreetAddress2]
+    from [sqlquery-inator].[dbo].[Address] as a
+    where a.[StreetAddress1] = @v0
+) as a2 on a2.[PersonID] = p.[ID]
+join [sqlquery-inator].[dbo].[Address] as a on a2.[ID] = a.[ID]
+where p.[FirstName] = @v00`)
     })
 });
 

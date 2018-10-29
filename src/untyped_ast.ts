@@ -38,6 +38,15 @@ export class RowNumberExpr extends Expr {
 
 export const isRowNumberExpr = is<RowNumberExpr>('RowNumberExpr')
 
+export class GroupByExpr extends Expr {
+    readonly _tag = 'GroupByExpr'
+    constructor(public projection: ProjectionExpr) {
+        super()
+    }
+}
+
+export const isGroupByExpr = is<GroupByExpr>('GroupByExpr')
+
 export type JoinType = 'inner' | 'leftOuter' | 'rightOuter'
 
 export const JoinType = {
@@ -61,16 +70,35 @@ export class TableReferenceExpr extends Expr {
 
 export const isTableReferenceExpr = is<TableReferenceExpr>('TableReferenceExpr')
 
+type JoinOptions = {
+    parent: Expr
+    joinType: JoinType
+    joinSource: Expr
+    alias: string
+    on: Expr
+    where?: WhereExpr
+    _tag?: string
+}
+
 export class JoinExpr extends Expr {
     readonly _tag = 'JoinExpr'
+    public parent: Expr
+    public joinType: JoinType
+    public joinSource: Expr
+    public alias: string
+    public on: Expr
+    public where?: WhereExpr
+
     constructor(
-        public parent: Expr,
-        public joinType: JoinType, 
-        public joinSource: Expr, 
-        public alias: string, 
-        public on: Expr
+        options: JoinOptions
     ) {
         super()
+        this.parent = options.parent
+        this.joinType = options.joinType
+        this.joinSource = options.joinSource
+        this.alias = options.alias
+        this.on = options.on
+        Object.assign(this, options);
     }
 }
 
@@ -192,6 +220,7 @@ type SelectOptions = {
     orderBy?: OrderByExpr | undefined,
     take?: TakeExpr | undefined,
     distinct?: boolean | undefined,
+    groupBy?: GroupByExpr | undefined,
     _tag?: string
 }
 
@@ -205,6 +234,7 @@ export class SelectStatementExpr extends Expr {
     public readonly orderBy?: OrderByExpr | undefined
     public readonly take?: TakeExpr | undefined
     public readonly distinct?: boolean
+    public readonly groupBy?: GroupByExpr | undefined
 
     constructor(
         options: SelectOptions
@@ -247,6 +277,16 @@ export class ScalarFunctionExpr extends Expr {
 }
 
 export const isScalarFunctionExpr = is<ScalarFunctionExpr>('ScalarFunctionExpr')
+
+export class AggregateFunctionExpr extends Expr {
+    readonly _tag = 'AggregateFunctionExpr'
+
+    constructor(public name: string, public distinct: boolean, public arg: Expr) {
+        super()
+    }
+}
+
+export const isAggregateFunctionExpr = is<AggregateFunctionExpr>('AggregateFunctionExpr')
 
 export class ValueExpr extends Expr {
     readonly _tag = 'ValueExpr'
