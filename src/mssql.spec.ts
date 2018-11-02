@@ -4,8 +4,7 @@ import 'mocha';
 import * as t from 'io-ts'
 import * as tdc from 'io-ts-derive-class'
 
-import { registerTable, from, ISNULL, val, ROW_NUMBER, COUNT, AVG, MAX, MIN, SUM } from '../index';
-import * as query from '../sqlquery';
+import { registerTable, from, ISNULL, val, ROW_NUMBER, COUNT, AVG, MAX, MIN, SUM } from './index';
 
 import { toQuery } from './mssql'
 import { DBSchema, ColumnSchema } from 'dbschema-inator';

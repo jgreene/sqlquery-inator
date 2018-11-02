@@ -1,5 +1,5 @@
-import * as ut from '../untyped_ast'
-import * as query from '../sqlquery'
+import * as ut from './untyped_ast'
+import * as query from './sqlquery'
 import { DBSchema, TableSchema, ColumnSchema } from 'dbschema-inator'
 
 function predicateOperatorToSql(comparison: ut.PredicateOperator): string {

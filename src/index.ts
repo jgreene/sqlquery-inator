@@ -1,6 +1,7 @@
 import * as ut from './untyped_ast'
 import * as t from 'io-ts'
 import * as tdc from 'io-ts-derive-class'
+import { TableSchema } from 'dbschema-inator'
 
 export type ColumnType = ut.ColumnType
 
