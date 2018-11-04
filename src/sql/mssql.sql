@@ -4,9 +4,21 @@ GO
 use [sqlquery-inator]
 GO
 
-select p.ID, count(*)
-from [sqlquery-inator].[dbo].[Person] as p
-group by p.ID
+select
+    [ID],
+    [FirstName],
+    [LastName]
+from (
+    select
+        (ROW_NUMBER() OVER (ORDER BY p.[ID] DESC)) as '_RowNumber',
+        p.[ID],
+        p.[FirstName],
+        p.[LastName]
+    from [sqlquery-inator].[dbo].[Person] as p
+    order by p.[ID] DESC
+) as ta1
+where [_RowNumber] > 10 AND [_RowNumber] <= 20
+
 
 create table dbo.Person (
 	ID INT NOT NULL PRIMARY KEY IDENTITY(1,1), 

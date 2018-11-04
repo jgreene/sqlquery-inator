@@ -541,6 +541,69 @@ from (
 where [RowNumber] > @v`)
     })
 
+    it('Can page records with ROW_NUMBER and take', async () => {
+        const query = from(Person, 'p').select(p => { 
+            return {
+                ...p,
+                RowNumber: ROW_NUMBER([p.ID.asc])
+            }
+        }).where(p => p.RowNumber.greaterThan(10).and(p.RowNumber.lessThan(21)))
+        .take(10)
+        .select(r => {
+            const row = { ...r };
+            delete row.RowNumber
+            return row;
+        })
+
+        const result = toQuery(dbschema, query.expr);
+
+        compare(result.sql, 
+`select
+    [ID],
+    [FirstName],
+    [LastName]
+from (
+    select top (10)
+        [ID],
+        [FirstName],
+        [LastName],
+        [RowNumber]
+    from (
+        select
+            p.[ID],
+            p.[FirstName],
+            p.[LastName],
+            (ROW_NUMBER() OVER (ORDER BY p.[ID] ASC)) as 'RowNumber'
+        from [sqlquery-inator].[dbo].[Person] as p
+    ) as ta1
+    where [RowNumber] > @v AND [RowNumber] < @v0
+) as ta1`)
+    })
+
+    it('Can use orderby pagination', async () => {
+        const query = from(Person, 'p').selectAll().orderByDesc(r => r.ID).page(2, 10);
+
+        const result = toQuery(dbschema, query.expr);
+
+        expect(result.parameters['v'].value).eq(10);
+        expect(result.parameters['v0'].value).eq(20);
+
+        compare(result.sql, 
+`select
+    [ID],
+    [FirstName],
+    [LastName]
+from (
+    select
+        (ROW_NUMBER() OVER (ORDER BY p.[ID] DESC)) as '_RowNumber',
+        p.[ID],
+        p.[FirstName],
+        p.[LastName]
+    from [sqlquery-inator].[dbo].[Person] as p
+) as ta1
+where [_RowNumber] > @v AND [_RowNumber] <= @v0`)
+    })
+
     it('Can use from on subquery', async () => {
         const subquery = from(Person, 'p').selectAll();
 
@@ -706,6 +769,24 @@ from [sqlquery-inator].[dbo].[Person] as p
 group by p.[FirstName]`)
     })
 
+    it('Can GroupBy on join', async () => {
+        const query = from(Person, 'p')
+                        .join(Address, 'a').on(r => r.p.ID.equals(r.a.PersonID))
+                        .groupBy(r => { return { FirstName: r.p.FirstName } })
+                        .select(r => { return { FirstName: r.FirstName, count: COUNT() }})
+                        
+
+        const result = toQuery(dbschema, query.expr);
+
+        compare(result.sql,
+`select
+    p.[FirstName],
+    (COUNT(*)) as 'count'
+from [sqlquery-inator].[dbo].[Person] as p
+join [sqlquery-inator].[dbo].[Address] as a on p.[ID] = a.[PersonID]
+group by p.[FirstName]`)
+    })
+
     it('Can select count(*)', async () => {
         const query = from(Person, 'p')
                         .selectAll()
@@ -859,7 +940,6 @@ where p.[FirstName] = @v AND p3.[LastName] = @v0`)
                         
 
         const result = toQuery(dbschema, query.expr);
-        console.log(result.sql)
 
         compare(result.sql,
 `select

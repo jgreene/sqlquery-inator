@@ -1,7 +1,6 @@
 import * as ut from './untyped_ast'
 import * as t from 'io-ts'
 import * as tdc from 'io-ts-derive-class'
-import { TableSchema } from 'dbschema-inator'
 
 export type ColumnType = ut.ColumnType
 
@@ -151,8 +150,6 @@ export function ISNULL<C extends ColumnType>(expr: TypedExpr<C | null>, value: V
     return new ColumnExpr(new ut.ScalarFunctionExpr('ISNULL', [expr.expr, value.expr]))
 }
 
-
-
 export function COUNT<C extends ColumnType>(column?: ColumnExpr<C> | undefined): AggregateColumnExpr<number> {
     if(column === undefined){
         return new AggregateColumnExpr(new ut.AggregateFunctionExpr('COUNT', false, new ut.StarExpr));
@@ -186,10 +183,14 @@ function getOrderByExpr<T>(ordering: OrderColumnExpr<any>[]): ut.OrderByExpr {
     return expr;
 }
 
+function INTERNAL_ROW_NUMBER<T>(ordering: ut.OrderByExpr): WindowFunctionColumnExpr<number> {
+    return new WindowFunctionColumnExpr<number>(new ut.RowNumberExpr(ordering));
+}
+
 export function ROW_NUMBER<T>(ordering: OrderColumnExpr<any>[]): WindowFunctionColumnExpr<number> {
     const expr = getOrderByExpr(ordering);
 
-    return new WindowFunctionColumnExpr<number>(new ut.RowNumberExpr(expr));
+    return INTERNAL_ROW_NUMBER(expr);
 }
 
 function GetColumnProjectionsFromTable<T>(table: Table<T>, alias?: string | undefined): Row<T> {
@@ -368,7 +369,7 @@ export class SelectExpr<T> extends TypedExpr<T> {
 
     take(num: number): SelectExpr<T> {
         const select = new ut.SelectStatementExpr(
-                            { take: new ut.TakeExpr(num), ...this.expr}
+                            { ...this.expr, take: new ut.TakeExpr(num) }
                         );
         return new SelectExpr<T>(this.row, select);
     }
@@ -419,25 +420,6 @@ function toAggregateRow<T>(row: Row<T>): AggregateRow<T> {
     return res;
 }
 
-export class GroupByExpr<T> extends TypedExpr<T> {
-    constructor(public row: Row<T>, expr: ut.Expr){
-        super(expr)
-    }
-
-    select<Projection>(func: (t: AggregateRow<T>) => AggregateRow<Projection>): 
-        SelectExpr<Projection>
-    {
-        const aggRow = toAggregateRow(this.row);
-        const row = func(aggRow);
-
-        const projection = GetProjectionExprFromRow(row);
-
-        const select = new ut.SelectStatementExpr({ ...this.expr, projection: projection });
-
-        return new SelectExpr<Projection>(row as any, select);
-    }
-}
-
 export class OrderByExpr<T> extends SelectExpr<T> {
     constructor(row: Row<T>, expr: ut.SelectStatementExpr) {
         super(row, expr)
@@ -457,6 +439,45 @@ export class OrderByExpr<T> extends SelectExpr<T> {
 
     thenByDesc(func: (t: Row<T>) => ColumnExpr<ColumnType>): OrderByExpr<T> {
         return this.thenBy(func, 'DESC');
+    }
+
+    page(pageNumber: number, itemsPerPage: number): SelectExpr<T> {
+        if(pageNumber < 1){
+            throw new Error('Page numbers start at 1')
+        }
+
+        const rowNumberAlias = '_RowNumber'
+        const orderBy = this.expr.orderBy!
+        const rowNumberExpr = as(INTERNAL_ROW_NUMBER(orderBy), rowNumberAlias)
+
+        const startIndex = (pageNumber - 1) * itemsPerPage
+        const endIndex = (pageNumber * itemsPerPage)
+
+        const rowNumberSelect = new ut.SelectStatementExpr({
+            ...this.expr,
+            projection: new ut.ProjectionExpr(
+                            [rowNumberExpr.expr]
+                                .concat(this.expr.projection.projections)
+                        ),
+            orderBy: undefined
+        })
+
+        const rowNumberColumnExpr = new ColumnExpr<number>(new ut.FieldExpr(rowNumberAlias));
+
+        const predicate = operators.greaterThan(rowNumberColumnExpr, startIndex)
+                            .and(operators.lessThanOrEquals(rowNumberColumnExpr, endIndex));
+
+        const newRow = GetColumnProjectionsFromRow(this.row)
+        const projection = GetProjectionExprFromRow(newRow);
+        
+        const select = new ut.SelectStatementExpr({
+            projection: projection,
+            from: rowNumberSelect,
+            where: new ut.WhereExpr(predicate.expr),
+            alias: this.expr.alias
+        })
+
+        return new SelectExpr<T>(this.row, select);
     }
 }
 
@@ -744,7 +765,7 @@ export class JoinExpr<T> extends TypedExpr<T> {
         return new SelectExpr<Projection>(row, select);
     }
 
-    where<P extends Row<T>>(func: (t: T) => PredicateExpr<T>): JoinExpr<T> {
+    where(func: (t: T) => PredicateExpr<T>): JoinExpr<T> {
 
         const pred = func(this.aliases);
 
@@ -759,22 +780,47 @@ export class JoinExpr<T> extends TypedExpr<T> {
         
         return new JoinExpr<T>(this.aliases, joinExpr);
     }
-    
 
-    // groupBy<G>(func: (t: T) => Row<G>): GroupByExpr<G> {
-    //     const row = func(this.aliases);
-    //     const projection = GetProjectionExprFromRow(row);
+    groupBy<G>(func: (t: T) => Row<G>): GroupByExpr<G> {
+        const row = func(this.aliases);
+        const projection = GetProjectionExprFromRow(row);
 
-    //     const select = new ut.SelectStatementExpr({ projection: projection, from: this.expr});
+        const join = new ut.JoinExpr(
+            {
+                ...this.expr,
+                groupBy: new ut.GroupByExpr(projection)
+            });
 
-    //     const select = new ut.SelectStatementExpr(
-    //         {
-    //             ...this.expr,
-    //             groupBy: new ut.GroupByExpr(projection)
-    //         });
+        return new GroupByExpr<G>(row, join)
+    }
+}
 
-    //     return new GroupByExpr<G>(row, select)
-    // }
+export class GroupByExpr<T> extends TypedExpr<T> {
+    constructor(public row: Row<T>, expr: ut.SelectStatementExpr | ut.JoinExpr){
+        super(expr)
+    }
+
+    select<Projection>(func: (t: AggregateRow<T>) => AggregateRow<Projection>): 
+        SelectExpr<Projection>
+    {
+        const aggRow = toAggregateRow(this.row);
+        const row = func(aggRow);
+        const projection = GetProjectionExprFromRow(row);
+
+        const select = (() => {
+            if(ut.isSelectStatementExpr(this.expr)){
+                return new ut.SelectStatementExpr({ ...this.expr, projection: projection });
+            }
+
+            if(ut.isJoinExpr(this.expr)){
+                return new ut.SelectStatementExpr({ projection: projection, from: this.expr });
+            }
+
+            throw new Error('GroupBy only supports selects and join expressions');
+        })();
+
+        return new SelectExpr<Projection>(row as any, select);
+    }
 }
 
 export class FromExpr<T, Talias extends string> extends TypedExpr<T> {

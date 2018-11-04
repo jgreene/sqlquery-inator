@@ -101,8 +101,9 @@ function GetJoinSql(expr: ut.Expr, ctx: Context): string {
 
     const predicateSql = toSql(expr.on, ctx);
     const where = expr.where ? '\n' + toSql(expr.where, ctx) : '';
+    const groupBy = expr.groupBy ? '\n' + toSql(expr.groupBy, ctx) : '';
     
-    return `${parentSql}\n${joinTypeSql} ${joinSourceSql} as ${expr.alias} on ${predicateSql}${where}`
+    return `${parentSql}\n${joinTypeSql} ${joinSourceSql} as ${expr.alias} on ${predicateSql}${where}${groupBy}`
 }
 
 function GetProjectionSql(expr: ut.Expr, ctx: Context, alias?: string | undefined) {
