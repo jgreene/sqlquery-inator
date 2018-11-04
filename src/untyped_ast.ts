@@ -77,6 +77,7 @@ type JoinOptions = {
     alias: string
     on: Expr
     where?: WhereExpr
+    orderBy?: OrderByExpr
     groupBy?: GroupByExpr
     _tag?: string
 }
@@ -89,6 +90,7 @@ export class JoinExpr extends Expr {
     public alias: string
     public on: Expr
     public where?: WhereExpr
+    public orderBy?: OrderByExpr
     public groupBy?: GroupByExpr
 
     constructor(

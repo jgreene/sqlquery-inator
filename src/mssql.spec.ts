@@ -604,6 +604,52 @@ from (
 where [_RowNumber] > @v AND [_RowNumber] <= @v0`)
     })
 
+    it('Can orderby against join', async () => {
+        const query = from(Person, 'p')
+                        .join(Person, 'p2').on(r => r.p.ID.equals(r.p2.ID))
+                        .orderByDesc(r => r.p2.ID)
+                        .select(r => ({ ...r.p}))
+
+        const result = toQuery(dbschema, query.expr);
+
+        compare(result.sql, 
+`select
+    p.[ID],
+    p.[FirstName],
+    p.[LastName]
+from [sqlquery-inator].[dbo].[Person] as p
+join [sqlquery-inator].[dbo].[Person] as p2 on p.[ID] = p2.[ID]
+order by p2.[ID] DESC`)
+    })
+
+    it('JoinOrderBy as subquery drops orderby', async () => {
+        const subquery = from(Person, 'p')
+                        .join(Person, 'p2').on(r => r.p.ID.equals(r.p2.ID))
+                        .orderByDesc(r => r.p2.ID)
+                        .select(r => ({ ...r.p}))
+
+        const query = from(Person, 'p')
+                        .join(subquery, 's').on(r => r.p.ID.equals(r.s.ID))
+                        .select(r => ({ ...r.s}))
+
+        const result = toQuery(dbschema, query.expr);
+
+        compare(result.sql, 
+`select
+    s.[ID],
+    s.[FirstName],
+    s.[LastName]
+from [sqlquery-inator].[dbo].[Person] as p
+join (
+    select
+        p.[ID],
+        p.[FirstName],
+        p.[LastName]
+    from [sqlquery-inator].[dbo].[Person] as p
+    join [sqlquery-inator].[dbo].[Person] as p2 on p.[ID] = p2.[ID]
+) as s on p.[ID] = s.[ID]`)
+    })
+
     it('Can use from on subquery', async () => {
         const subquery = from(Person, 'p').selectAll();
 
@@ -953,7 +999,7 @@ join (
         p.[FirstName],
         p.[LastName]
     from [sqlquery-inator].[dbo].[Person] as p
-    where p.[FirstName] = @v
+    where p.[FirstName] = @v0
 ) as p2 on p.[ID] = p2.[ID]
 join (
     select
@@ -962,10 +1008,10 @@ join (
         a.[StreetAddress1],
         a.[StreetAddress2]
     from [sqlquery-inator].[dbo].[Address] as a
-    where a.[StreetAddress1] = @v0
+    where a.[StreetAddress1] = @v00
 ) as a2 on a2.[PersonID] = p.[ID]
 join [sqlquery-inator].[dbo].[Address] as a on a2.[ID] = a.[ID]
-where p.[FirstName] = @v00`)
+where p.[FirstName] = @v`)
     })
 });
 

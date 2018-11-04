@@ -426,7 +426,6 @@ export class OrderByExpr<T> extends SelectExpr<T> {
     }
 
     thenBy(func: (t: Row<T>) => ColumnExpr<ColumnType>, direction?: 'ASC' | 'DESC'): OrderByExpr<T> {
-        
         const field = func(this.row);
         const orderBy = new ut.OrderByExpr(field.expr, direction || 'ASC', this.expr.orderBy)
         const select = new ut.SelectStatementExpr({
@@ -529,7 +528,7 @@ abstract class JoinBuilderStart<L, LAlias extends string, R, RAlias extends stri
 
         const leftSource = (() => {
             if(this.left instanceof SelectExpr){
-                return this.left.expr;
+                return cleanSelectForInnerQuery(this.left.expr);
             }
 
             if(this.left instanceof FromExpr){
@@ -547,7 +546,7 @@ abstract class JoinBuilderStart<L, LAlias extends string, R, RAlias extends stri
 
         const rightSource = (() => {
             if(this.right instanceof SelectExpr){
-                return this.right.expr;
+                return cleanSelectForInnerQuery(this.right.expr);
             }
 
             if(this.right instanceof FromExpr){
@@ -636,6 +635,18 @@ export class RightOuterJoinBuilderStart<L, LAlias extends string, R, RAlias exte
     }
 }
 
+function cleanSelectForInnerQuery(select: ut.SelectStatementExpr): ut.SelectStatementExpr {
+    const take = select.take
+    const hasTake = take !== undefined
+    const orderBy = hasTake ? select.orderBy : undefined
+    const expr = new ut.SelectStatementExpr({
+        ...select,
+        orderBy: orderBy
+    })
+
+    return expr;
+}
+
 abstract class JoinBuilder<L, R, RAlias extends string, T, TResult> {
     constructor(
         public joinType: ut.JoinType, 
@@ -669,7 +680,7 @@ abstract class JoinBuilder<L, R, RAlias extends string, T, TResult> {
 
         const rightSource = (() => {
             if(this.right instanceof SelectExpr){
-                return this.right.expr;
+                return cleanSelectForInnerQuery(this.right.expr);
             }
 
             if(this.right instanceof FromExpr){
@@ -687,9 +698,16 @@ abstract class JoinBuilder<L, R, RAlias extends string, T, TResult> {
 
         const predicate = func(aliases as T);
 
-        const parent = this.parent.where 
-                            ? new ut.JoinExpr({ ...this.parent, where: undefined }) 
-                            : this.parent
+        const where = this.parent.where
+        const groupBy = this.parent.groupBy
+        const orderBy = this.parent.orderBy
+
+        const parent = new ut.JoinExpr({ 
+                            ...this.parent, 
+                            where: undefined ,
+                            groupBy: undefined,
+                            orderBy: undefined
+                        })
 
         const joinExpr = new ut.JoinExpr({
             parent: parent,
@@ -697,7 +715,9 @@ abstract class JoinBuilder<L, R, RAlias extends string, T, TResult> {
             joinSource: rightSource,
             alias: this.ralias,
             on: predicate.expr,
-            where: this.parent.where
+            where: where,
+            groupBy: groupBy,
+            orderBy: orderBy
         })
 
         return new JoinExpr<TResult>(aliases, joinExpr);
@@ -733,7 +753,7 @@ JoinBuilder<
 }
 
 export class JoinExpr<T> extends TypedExpr<T> {
-    constructor(private aliases: T, public expr: ut.JoinExpr){
+    constructor(protected aliases: T, public expr: ut.JoinExpr){
         super(expr);
     }
 
@@ -760,7 +780,23 @@ export class JoinExpr<T> extends TypedExpr<T> {
 
         const projection = GetProjectionExprFromRow(row);
 
-        const select = new ut.SelectStatementExpr({ projection: projection, from: this.expr });
+        const orderBy = this.expr.orderBy
+        const where = this.expr.where
+        const groupBy = this.expr.groupBy
+        const join = new ut.JoinExpr({
+            ...this.expr,
+            where: undefined,
+            orderBy: undefined,
+            groupBy: undefined
+        })
+
+        const select = new ut.SelectStatementExpr({ 
+                        projection: projection, 
+                        from: join, 
+                        where: where,
+                        groupBy: groupBy,
+                        orderBy: orderBy 
+                    });
 
         return new SelectExpr<Projection>(row, select);
     }
@@ -781,6 +817,22 @@ export class JoinExpr<T> extends TypedExpr<T> {
         return new JoinExpr<T>(this.aliases, joinExpr);
     }
 
+    orderBy(func: (t: T) => ColumnExpr<ColumnType>, direction?: 'ASC' | 'DESC'): JoinOrderByExpr<T> {
+        const field = func(this.aliases);
+        const orderBy = new ut.OrderByExpr(field.expr, direction || 'ASC')
+        
+        const join = new ut.JoinExpr({
+            ...this.expr,
+            orderBy: orderBy
+        })
+
+        return new JoinOrderByExpr<T>(this.aliases, join);
+    }
+
+    orderByDesc(func: (t: T) => ColumnExpr<ColumnType>): JoinOrderByExpr<T> {
+        return this.orderBy(func, 'DESC');
+    }
+
     groupBy<G>(func: (t: T) => Row<G>): GroupByExpr<G> {
         const row = func(this.aliases);
         const projection = GetProjectionExprFromRow(row);
@@ -792,6 +844,27 @@ export class JoinExpr<T> extends TypedExpr<T> {
             });
 
         return new GroupByExpr<G>(row, join)
+    }
+}
+
+export class JoinOrderByExpr<T> extends JoinExpr<T> {
+    constructor(aliases: T, expr: ut.JoinExpr){
+        super(aliases, expr);
+    }
+
+    thenBy(func: (t: T) => ColumnExpr<ColumnType>, direction?: 'ASC' | 'DESC'): JoinOrderByExpr<T> {
+        const field = func(this.aliases);
+        const orderBy = new ut.OrderByExpr(field.expr, direction || 'ASC', this.expr.orderBy)
+        const join = new ut.JoinExpr({
+            ...this.expr,
+            orderBy: orderBy
+        });
+
+        return new JoinOrderByExpr<T>(this.aliases, join);
+    }
+
+    thenByDesc(func: (t: T) => ColumnExpr<ColumnType>): JoinOrderByExpr<T> {
+        return this.thenBy(func, 'DESC');
     }
 }
 

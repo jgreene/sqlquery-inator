@@ -101,6 +101,7 @@ function GetJoinSql(expr: ut.Expr, ctx: Context): string {
 
     const predicateSql = toSql(expr.on, ctx);
     const where = expr.where ? '\n' + toSql(expr.where, ctx) : '';
+    const orderBy = expr.orderBy ? '\norder by ' + toSql(expr.orderBy, ctx) : '';
     const groupBy = expr.groupBy ? '\n' + toSql(expr.groupBy, ctx) : '';
     
     return `${parentSql}\n${joinTypeSql} ${joinSourceSql} as ${expr.alias} on ${predicateSql}${where}${groupBy}`
