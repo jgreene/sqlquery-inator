@@ -1013,5 +1013,19 @@ join (
 join [sqlquery-inator].[dbo].[Address] as a on a2.[ID] = a.[ID]
 where p.[FirstName] = @v`)
     })
+
+    it('Can use OR in where clause', async () => {
+        const query = from(Person, 'p').selectAll().where(p => p.FirstName.equals('Heinz').or(p.LastName.equals('Doofenschmirtz')))
+
+        const result = toQuery(dbschema, query.expr);
+
+        compare(result.sql, 
+`select
+    p.[ID],
+    p.[FirstName],
+    p.[LastName]
+from [sqlquery-inator].[dbo].[Person] as p
+where p.[FirstName] = @v OR p.[LastName] = @v0`)
+    });
 });
 

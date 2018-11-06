@@ -238,6 +238,13 @@ function toSql(expr: ut.Expr | undefined, ctx: Context): string {
         return `${left} AND ${right}`
     }
 
+    if(ut.isOrExpr(expr)) {
+        const left = toSql(expr.left, ctx);
+        const right = toSql(expr.right, ctx);
+
+        return `${left} OR ${right}`
+    }
+
     if(ut.isPredicateExpr(expr)) {
         const left = toSql(expr.left, ctx);
         const right = expr.right ? ' ' + toSql(expr.right, ctx) : '';
