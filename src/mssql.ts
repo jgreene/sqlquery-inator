@@ -235,14 +235,14 @@ function toSql(expr: ut.Expr | undefined, ctx: Context): string {
         const left = toSql(expr.left, ctx);
         const right = toSql(expr.right, ctx);
 
-        return `${left} AND ${right}`
+        return `(${left} AND ${right})`
     }
 
     if(ut.isOrExpr(expr)) {
         const left = toSql(expr.left, ctx);
         const right = toSql(expr.right, ctx);
 
-        return `${left} OR ${right}`
+        return `(${left} OR ${right})`
     }
 
     if(ut.isPredicateExpr(expr)) {

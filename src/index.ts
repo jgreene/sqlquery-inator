@@ -244,7 +244,7 @@ function GetProjectionExprFromRow<T>(row: Row<T> | AggregateRow<T>): ut.Projecti
 }
 
 export class PredicateExpr<T> extends TypedExpr<T> {
-    constructor(expr: ut.Expr) {
+    constructor(public expr: ut.PredicateExpr | ut.AndExpr | ut.OrExpr) {
         super(expr)
     }
 
@@ -312,7 +312,7 @@ export class SelectExpr<T> extends TypedExpr<T> {
         }
 
         
-        let innerExpr = new ut.SelectStatementExpr(
+        const innerExpr = new ut.SelectStatementExpr(
                             {
                                 ...this.expr,
                                 where: undefined,
@@ -325,7 +325,7 @@ export class SelectExpr<T> extends TypedExpr<T> {
         const where = new ut.WhereExpr(pred.expr);
         const newProjection = GetProjectionExprFromRow(newRow);
 
-        let expr = new ut.SelectStatementExpr(
+        const expr = new ut.SelectStatementExpr(
                         {
                             ...this.expr,
                             projection: newProjection,
@@ -958,3 +958,19 @@ export function from<T, Talias extends string >(source: SelectExpr<T> | Table<T>
 
     return new FromExpr<T, Talias>(source, alias, new ut.FromExpr(tableName, alias));
 }
+
+// export class DynamicFromExpr<Talias extends string> extends TypedExpr<any> {
+//     constructor(expr: ut.Expr){
+//         super(expr);
+//     }
+
+//     select<Projection>(func: () => Row<Projection>): SelectExpr<Projection> {
+
+//     }
+// }
+
+// export function dynamicFrom<Talias extends string>(tableName: string, alias: Talias): DynamicFromExpr<Talias> {
+
+//     const from = new ut.FromExpr(tableName, alias);
+//     return new DynamicFromExpr<Talias>(from);
+// }

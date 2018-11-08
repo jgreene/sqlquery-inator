@@ -228,7 +228,7 @@ from [sqlquery-inator].[dbo].[Person] as p`)
     p.[FirstName],
     p.[LastName]
 from [sqlquery-inator].[dbo].[Person] as p
-where p.[FirstName] = @v AND p.[LastName] = @v0`)
+where (p.[FirstName] = @v AND p.[LastName] = @v1)`)
     })
 
     it('Multiple where clauses result in AND predicates', async () => {
@@ -241,7 +241,7 @@ where p.[FirstName] = @v AND p.[LastName] = @v0`)
     p.[FirstName],
     p.[LastName]
 from [sqlquery-inator].[dbo].[Person] as p
-where p.[FirstName] = @v AND p.[LastName] = @v0`)
+where (p.[FirstName] = @v AND p.[LastName] = @v1)`)
     })
 
     it('Multiple selects results in inner query', async () => {
@@ -576,7 +576,7 @@ from (
             (ROW_NUMBER() OVER (ORDER BY p.[ID] ASC)) as 'RowNumber'
         from [sqlquery-inator].[dbo].[Person] as p
     ) as ta1
-    where [RowNumber] > @v AND [RowNumber] < @v0
+    where ([RowNumber] > @v AND [RowNumber] < @v1)
 ) as ta1`)
     })
 
@@ -586,7 +586,7 @@ from (
         const result = toQuery(dbschema, query.expr);
 
         expect(result.parameters['v'].value).eq(10);
-        expect(result.parameters['v0'].value).eq(20);
+        expect(result.parameters['v1'].value).eq(20);
 
         compare(result.sql, 
 `select
@@ -601,7 +601,7 @@ from (
         p.[LastName]
     from [sqlquery-inator].[dbo].[Person] as p
 ) as ta1
-where [_RowNumber] > @v AND [_RowNumber] <= @v0`)
+where ([_RowNumber] > @v AND [_RowNumber] <= @v1)`)
     })
 
     it('Can orderby against join', async () => {
@@ -964,7 +964,7 @@ where p.[FirstName] = @v`)
 from [sqlquery-inator].[dbo].[Person] as p
 join [sqlquery-inator].[dbo].[Person] as p2 on p.[ID] = p2.[ID]
 join [sqlquery-inator].[dbo].[Person] as p3 on p2.[ID] = p.[ID]
-where p.[FirstName] = @v AND p3.[LastName] = @v0`)
+where (p.[FirstName] = @v AND p3.[LastName] = @v1)`)
     })
 
     it('Can write complex query and get expected results', async () => {
@@ -999,7 +999,7 @@ join (
         p.[FirstName],
         p.[LastName]
     from [sqlquery-inator].[dbo].[Person] as p
-    where p.[FirstName] = @v0
+    where p.[FirstName] = @v1
 ) as p2 on p.[ID] = p2.[ID]
 join (
     select
@@ -1008,7 +1008,7 @@ join (
         a.[StreetAddress1],
         a.[StreetAddress2]
     from [sqlquery-inator].[dbo].[Address] as a
-    where a.[StreetAddress1] = @v00
+    where a.[StreetAddress1] = @v2
 ) as a2 on a2.[PersonID] = p.[ID]
 join [sqlquery-inator].[dbo].[Address] as a on a2.[ID] = a.[ID]
 where p.[FirstName] = @v`)
@@ -1025,7 +1025,31 @@ where p.[FirstName] = @v`)
     p.[FirstName],
     p.[LastName]
 from [sqlquery-inator].[dbo].[Person] as p
-where p.[FirstName] = @v OR p.[LastName] = @v0`)
+where (p.[FirstName] = @v OR p.[LastName] = @v1)`)
+    });
+
+    it('Can use multiple AND | OR in where clause', async () => {
+        const query = from(Person, 'p').selectAll().where(p => 
+            p.FirstName.equals('Heinz')
+            .and(
+                p.LastName.equals('Doofenschmirtz')
+            )
+            .or(
+                p.LastName.equals('Incorporated')
+                .and(p.FirstName.equals('Evil'))
+            )
+            .or(p.ID.equals(1))
+        )
+
+        const result = toQuery(dbschema, query.expr);
+
+        compare(result.sql, 
+`select
+    p.[ID],
+    p.[FirstName],
+    p.[LastName]
+from [sqlquery-inator].[dbo].[Person] as p
+where (((p.[FirstName] = @v AND p.[LastName] = @v1) OR (p.[LastName] = @v2 AND p.[FirstName] = @v3)) OR p.[ID] = @v4)`)
     });
 });
 

@@ -1,5 +1,6 @@
+import * as moment from 'moment'
 
-export type ColumnType = boolean | number | string | Date | null
+export type ColumnType = boolean | number | string | moment.Moment | null
 
 function is<T extends Expr>(tag: string) {
     return function(input: Expr | undefined): input is T {
@@ -110,7 +111,7 @@ export const isJoinExpr = is<JoinExpr>('JoinExpr')
 
 export class WhereExpr extends Expr {
     readonly _tag = 'WhereExpr'
-    constructor(public clause: Expr) {
+    constructor(public clause: OrExpr | AndExpr | PredicateExpr) {
         super()
     }
 }
