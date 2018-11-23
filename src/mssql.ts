@@ -52,12 +52,23 @@ function indent(input: string, ctx: Context): string {
     return ' '.repeat(4 * level) + parts[0];
 }
 
+function toBracketedTableName(tableName: string) {
+    const parts = tableName.split('.')
+    return parts.map(p => `[${p}]`).join('.')
+}
+
 function GetFromSql(expr: ut.Expr, ctx: Context): string {
     if(!ut.isFromExpr(expr)){
         throw new Error('Not a from expression!');
     }
-    const table = ctx.getTable(expr.tableName);
-    return `from [${table.name.db_name}].[${table.name.schema}].[${table.name.name}] as ${expr.alias}`
+
+    if(ctx.getTableSchema){
+        const table = ctx.getTableSchema(expr.tableName);
+        return `from [${table.name.schema}].[${table.name.name}] as ${expr.alias}`
+    }    
+    
+    //UNSAFE BRANCH
+    return `from ${toBracketedTableName(expr.tableName)} as ${expr.alias}`
 }
 
 function GetJoinTypeSql(joinType: ut.JoinType) {
@@ -73,7 +84,7 @@ function GetJoinTypeSql(joinType: ut.JoinType) {
         return 'right outer join'
     }
 
-    throw new Error('Invalid join type!');
+    throw new Error('Invalid join type: ' + JSON.stringify(joinType, null, 2));
 }
 
 function GetJoinSql(expr: ut.Expr, ctx: Context): string {
@@ -101,7 +112,7 @@ function GetJoinSql(expr: ut.Expr, ctx: Context): string {
 
     const predicateSql = toSql(expr.on, ctx);
     const where = expr.where ? '\n' + toSql(expr.where, ctx) : '';
-    const orderBy = expr.orderBy ? '\norder by ' + toSql(expr.orderBy, ctx) : '';
+    //const orderBy = expr.orderBy ? '\norder by ' + toSql(expr.orderBy, ctx) : '';
     const groupBy = expr.groupBy ? '\n' + toSql(expr.groupBy, ctx) : '';
     
     return `${parentSql}\n${joinTypeSql} ${joinSourceSql} as ${expr.alias} on ${predicateSql}${where}${groupBy}`
@@ -127,7 +138,7 @@ function GetSelectSql(expr: ut.Expr, parentCtx: Context): string {
         tableAliasCount: 0, 
         table_aliases: {}, 
         indent_level: parentCtx.indent_level,
-        getTable: parentCtx.getTable
+        getTable: parentCtx.getTableSchema
     };
 
     return GetSelectSqlInternal(expr, ctx);
@@ -189,8 +200,13 @@ function toSql(expr: ut.Expr | undefined, ctx: Context): string {
     }
 
     if(ut.isTableReferenceExpr(expr)) {
-        const table = ctx.getTable(expr.tableName);
-        return `[${table.name.db_name}].[${table.name.schema}].[${table.name.name}]`;
+        if(ctx.getTableSchema){
+            const table = ctx.getTableSchema(expr.tableName);
+            return `[${table.name.db_name}].[${table.name.schema}].[${table.name.name}]`;
+        }
+        
+        //UNSAFE BRANCH
+        return toBracketedTableName(expr.tableName);
     }
 
     if(ut.isGroupByExpr(expr)){
@@ -284,14 +300,20 @@ function toSql(expr: ut.Expr | undefined, ctx: Context): string {
     }
 
     if(ut.isColumnExpr(expr)){
-        const table = ctx.getTable(expr.tableName);
-        const column = table.columns.find(c => c.name === expr.columnName);
-        if(column === undefined)
-        {
-            throw new Error(`Could not find column ${expr.columnName} in ${expr.tableName}!`);
+        if(ctx.getTableSchema){
+            const table = ctx.getTableSchema(expr.tableName);
+            const column = table.columns.find(c => c.name === expr.columnName);
+            if(column === undefined)
+            {
+                throw new Error(`Could not find column ${expr.columnName} in ${expr.tableName}!`);
+            }
+            const alias = expr.alias;
+            return alias ? `${alias}.[${column.name}]` : `[${column.name}]`;
         }
+
+        //UNSAFE BRANCH
         const alias = expr.alias;
-        return alias ? `${alias}.[${column.name}]` : `[${column.name}]`;
+        return alias ? `${alias}.[${expr.columnName}]` : `[${expr.columnName}]`;
     }
 
     if(ut.isFieldExpr(expr)) {
@@ -314,25 +336,6 @@ function toSql(expr: ut.Expr | undefined, ctx: Context): string {
     throw new Error('Could not generate query for expr: ' + JSON.stringify(expr, null, 2));
 }
 
-const tableCache: { [key: string]: TableSchema } = {};
-
-function getFindTable(schema: DBSchema) {
-    return function(tableName: string) {
-        const cached = tableCache[tableName];
-        if(cached !== undefined){
-            return cached;
-        }
-
-        const table = schema.tables.find(t => `${t.name.db_name}.${t.name.schema}.${t.name.name}` === tableName);
-        if(table === undefined){
-            throw new Error(`Could not find table ${tableName} in schema!`);
-        }
-
-        tableCache[tableName] = table;
-        return table;
-    }
-}
-
 function insertColumnAlias(ctx: Context, alias: string): string {
     ctx.aliasCount = ctx.aliasCount + 1;
     const alias_id = 'alias' + ctx.aliasCount;
@@ -347,14 +350,14 @@ function getTableAlias(ctx: Context): string {
     return alias_id;
 }
 
-type Context = {
+export type Context = {
     parameters: query.SqlParameters,
     aliasCount: number,
     column_aliases: { [key: string]: string },
     tableAliasCount: number,
     table_aliases: { [key: string]: string },
     indent_level: number,
-    getTable: (tableName: string) => TableSchema
+    getTableSchema?: ((tableName: string) => TableSchema) | undefined
 }
 
 function increaseIndent(ctx: Context): Context {
@@ -363,15 +366,24 @@ function increaseIndent(ctx: Context): Context {
     return newCtx;
 }
 
-export function toQuery(schema: DBSchema, expr: ut.Expr): query.SqlQuery {
-    const ctx = { 
-        parameters: {}, 
-        aliasCount: 0, 
-        column_aliases: {}, 
-        tableAliasCount: 0, 
-        table_aliases: {}, 
+export type QueryOptions = {
+    allowSqlInjection: boolean
+    getTableSchema?: ((tableName: string) => TableSchema) | undefined
+}
+
+export function toQuery(expr: ut.SelectStatementExpr, options: QueryOptions): query.SqlQuery {
+    if(options.allowSqlInjection !== true && options.getTableSchema === undefined){
+        throw new Error('getTableSchema must be defined when unsafeAllowSqlInjection is false!')
+    }
+
+    const ctx = {
+        parameters: {},
+        aliasCount: 0,
+        column_aliases: {},
+        tableAliasCount: 0,
+        table_aliases: {},
         indent_level: 0,
-        getTable: getFindTable(schema) 
+        getTableSchema: options.getTableSchema
     };
     const sql = toSql(expr, ctx);
 

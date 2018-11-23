@@ -25,7 +25,7 @@ describe('SQL query AST', () => {
         expect(ut.isFromExpr(expr)).eq(true)
 
         if(ut.isFromExpr(expr)){
-            expect(expr.tableName).eq('sqlquery-inator.dbo.Person')
+            expect(expr.tableName).eq('dbo.Person')
         }
     })
 

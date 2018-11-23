@@ -5,10 +5,36 @@ import * as t from 'io-ts'
 import * as tdc from 'io-ts-derive-class'
 
 import { registerTable, from, ISNULL, val, ROW_NUMBER, COUNT, AVG, MAX, MIN, SUM } from './index';
+import * as ut from './untyped_ast'
 
 import { toQuery } from './mssql'
-import { DBSchema, ColumnSchema } from 'dbschema-inator';
+import { DBSchema, ColumnSchema, TableSchema } from 'dbschema-inator';
 import { join } from 'path';
+
+const tableCache: { [key: string]: TableSchema } = {};
+
+function getFindTable(schema: DBSchema) {
+    return function(tableName: string) {
+        const cached = tableCache[tableName];
+        if(cached !== undefined){
+            return cached;
+        }
+
+        const table = schema.tables.find(t => `${t.name.db_name}.${t.name.schema}.${t.name.name}` === tableName);
+        if(table === undefined){
+            throw new Error(`Could not find table ${tableName} in schema!`);
+        }
+
+        tableCache[tableName] = table;
+        return table;
+    }
+}
+
+function toUnsafeQuery(schema: DBSchema, expr: ut.SelectStatementExpr){
+    return toQuery(expr, {
+        allowSqlInjection: true
+    })
+}
 
 const PersonType = t.type({
     ID: t.Integer,
@@ -18,7 +44,7 @@ const PersonType = t.type({
 
 class Person extends tdc.DeriveClass(PersonType) {}
 
-registerTable(Person, 'sqlquery-inator.dbo.Person');
+registerTable(Person, 'dbo.Person');
 
 const AddressType = t.type({
     ID: t.Integer,
@@ -29,7 +55,7 @@ const AddressType = t.type({
 
 class Address extends tdc.DeriveClass(AddressType) {}
 
-registerTable(Address, 'sqlquery-inator.dbo.Address');
+registerTable(Address, 'dbo.Address');
 
 const dbschema: DBSchema = {
     name: 'sqlquery-inator',
@@ -160,54 +186,54 @@ function compare(actual: string, expected: string){
 describe('mssql query tests', () => {
     it('Can generate Select * query', async () => {
         const query = from(Person, 'p').selectAll()
-        const result = toQuery(dbschema, query.expr);
+        const result = toUnsafeQuery(dbschema, query.expr);
 
         compare(result.sql, 
 `select
     p.[ID],
     p.[FirstName],
     p.[LastName]
-from [sqlquery-inator].[dbo].[Person] as p`)
+from [dbo].[Person] as p`)
     })
 
     it('Can select individual columns from table', async () => {
         const query = from(Person, 'p').select(p => { return { ID: p.ID }});
-        const result = toQuery(dbschema, query.expr);
+        const result = toUnsafeQuery(dbschema, query.expr);
 
         compare(result.sql, 
 `select
     p.[ID]
-from [sqlquery-inator].[dbo].[Person] as p`)
+from [dbo].[Person] as p`)
     })
 
     it('Can call select with scalar function', async () => {
         const isNullExpr = ISNULL(val(null), val(''));
         const query = from(Person, 'p').select(p => { return { test: isNullExpr } });
-        const result = toQuery(dbschema, query.expr);
+        const result = toUnsafeQuery(dbschema, query.expr);
 
         compare(result.sql, 
 `select
     (ISNULL(null, '')) as 'test'
-from [sqlquery-inator].[dbo].[Person] as p`)
+from [dbo].[Person] as p`)
     })
 
     it('Can select columns and additional calculated fields', async () => {
         const isNullExpr = ISNULL(val(null), val(''));
         const query = from(Person, 'p').select(p => { return { ID: p.ID, FirstName: p.FirstName, blah: isNullExpr }})
-        const result = toQuery(dbschema, query.expr);
+        const result = toUnsafeQuery(dbschema, query.expr);
 
         compare(result.sql, 
 `select
     p.[ID],
     p.[FirstName],
     (ISNULL(null, '')) as 'blah'
-from [sqlquery-inator].[dbo].[Person] as p`)
+from [dbo].[Person] as p`)
     })
 
     it('Can select all columns using spread syntax', async () => {
         const isNullExpr = ISNULL(val(null), val(''));
         const query = from(Person, 'p').select(p => { return { ...p, blah: isNullExpr }})
-        const result = toQuery(dbschema, query.expr);
+        const result = toUnsafeQuery(dbschema, query.expr);
 
         compare(result.sql, 
 `select
@@ -215,39 +241,39 @@ from [sqlquery-inator].[dbo].[Person] as p`)
     p.[FirstName],
     p.[LastName],
     (ISNULL(null, '')) as 'blah'
-from [sqlquery-inator].[dbo].[Person] as p`)
+from [dbo].[Person] as p`)
     })
 
     it('Can filter using where clause', async () => {
         const query = from(Person, 'p').selectAll().where(p => p.FirstName.equals('Heinz').and(p.LastName.equals('Doofenschmirtz')))
-        const result = toQuery(dbschema, query.expr);
+        const result = toUnsafeQuery(dbschema, query.expr);
 
         compare(result.sql, 
 `select
     p.[ID],
     p.[FirstName],
     p.[LastName]
-from [sqlquery-inator].[dbo].[Person] as p
+from [dbo].[Person] as p
 where (p.[FirstName] = @v AND p.[LastName] = @v1)`)
     })
 
     it('Multiple where clauses result in AND predicates', async () => {
         const query = from(Person, 'p').selectAll().where(p => p.FirstName.equals('Heinz')).where(p => p.LastName.equals('Doofenschmirtz'))
-        const result = toQuery(dbschema, query.expr);
+        const result = toUnsafeQuery(dbschema, query.expr);
 
         compare(result.sql, 
 `select
     p.[ID],
     p.[FirstName],
     p.[LastName]
-from [sqlquery-inator].[dbo].[Person] as p
+from [dbo].[Person] as p
 where (p.[FirstName] = @v AND p.[LastName] = @v1)`)
     })
 
     it('Multiple selects results in inner query', async () => {
         const query = from(Person, 'p').selectAll().select(p => { return { ID: p.ID, FirstName: p.FirstName}}, 'p2')
 
-        const result = toQuery(dbschema, query.expr);
+        const result = toUnsafeQuery(dbschema, query.expr);
         compare(result.sql,
 `select
     p2.[ID],
@@ -257,7 +283,7 @@ from (
         p.[ID],
         p.[FirstName],
         p.[LastName]
-    from [sqlquery-inator].[dbo].[Person] as p
+    from [dbo].[Person] as p
 ) as p2`)
     })
 
@@ -270,7 +296,7 @@ from (
                         })
                         
 
-        const result = toQuery(dbschema, query.expr);
+        const result = toUnsafeQuery(dbschema, query.expr);
 
         compare(result.sql,
 `select
@@ -280,9 +306,9 @@ from (
     a.[PersonID],
     a.[StreetAddress1],
     a.[StreetAddress2]
-from [sqlquery-inator].[dbo].[Person] as p
-join [sqlquery-inator].[dbo].[Address] as a on p.[ID] = a.[PersonID]
-join [sqlquery-inator].[dbo].[Person] as p2 on p2.[ID] = p.[ID]`)
+from [dbo].[Person] as p
+join [dbo].[Address] as a on p.[ID] = a.[PersonID]
+join [dbo].[Person] as p2 on p2.[ID] = p.[ID]`)
     });
 
     it('Join with where clause', async () => {
@@ -291,15 +317,15 @@ join [sqlquery-inator].[dbo].[Person] as p2 on p2.[ID] = p.[ID]`)
                         .select(r => ({ ...r.p}))
                         .where(r => r.FirstName.equals('Heinz'))
 
-        const result = toQuery(dbschema, query.expr);
+        const result = toUnsafeQuery(dbschema, query.expr);
         
         compare(result.sql,
 `select
     p.[ID],
     p.[FirstName],
     p.[LastName]
-from [sqlquery-inator].[dbo].[Person] as p
-join [sqlquery-inator].[dbo].[Person] as p2 on p.[ID] = p2.[ID]
+from [dbo].[Person] as p
+join [dbo].[Person] as p2 on p.[ID] = p2.[ID]
 where p.[FirstName] = @v`)
     });
 
@@ -315,7 +341,7 @@ where p.[FirstName] = @v`)
                         })
                         
 
-        const result = toQuery(dbschema, query.expr);
+        const result = toUnsafeQuery(dbschema, query.expr);
 
         compare(result.sql, 
 `select
@@ -326,20 +352,20 @@ where p.[FirstName] = @v`)
     a.[StreetAddress1],
     a.[StreetAddress2],
     (a.[ID]) as 'AddressID'
-from [sqlquery-inator].[dbo].[Person] as p
-join [sqlquery-inator].[dbo].[Address] as a on p.[ID] = a.[PersonID]
-join [sqlquery-inator].[dbo].[Person] as p2 on p2.[ID] = p.[ID]`)
+from [dbo].[Person] as p
+join [dbo].[Address] as a on p.[ID] = a.[PersonID]
+join [dbo].[Person] as p2 on p2.[ID] = p.[ID]`)
     });
 
     it('Selecting a value results in a parameter being injected', async () => {
         const query = from(Person, 'p').select(p => { return { ID: val(1) }})
 
-        const result = toQuery(dbschema, query.expr);
+        const result = toUnsafeQuery(dbschema, query.expr);
         
         compare(result.sql,
 `select
     (@v) as 'ID'
-from [sqlquery-inator].[dbo].[Person] as p`)
+from [dbo].[Person] as p`)
     });
 
     it('left outer join returns nullable columns', async () => {
@@ -350,7 +376,7 @@ from [sqlquery-inator].[dbo].[Person] as p`)
                             return { ...r.p, StreetAddress1: r.a.StreetAddress1, SecondFirstName: r.p2.FirstName }
                         });
 
-        const result = toQuery(dbschema, query.expr);
+        const result = toUnsafeQuery(dbschema, query.expr);
 
         compare(result.sql, 
 `select
@@ -359,9 +385,9 @@ from [sqlquery-inator].[dbo].[Person] as p`)
     p.[LastName],
     a.[StreetAddress1],
     (p2.[FirstName]) as 'SecondFirstName'
-from [sqlquery-inator].[dbo].[Person] as p
-left outer join [sqlquery-inator].[dbo].[Address] as a on p.[ID] = a.[PersonID]
-left outer join [sqlquery-inator].[dbo].[Person] as p2 on a.[PersonID] = p2.[ID]`)
+from [dbo].[Person] as p
+left outer join [dbo].[Address] as a on p.[ID] = a.[PersonID]
+left outer join [dbo].[Person] as p2 on a.[PersonID] = p2.[ID]`)
     });
 
     it('right outer join returns nullable columns', async () => {
@@ -372,7 +398,7 @@ left outer join [sqlquery-inator].[dbo].[Person] as p2 on a.[PersonID] = p2.[ID]
                             return { ...r.p2, StreetAddress1: r.a.StreetAddress1, FirstName2: r.p.FirstName }
                         });
 
-        const result = toQuery(dbschema, query.expr);
+        const result = toUnsafeQuery(dbschema, query.expr);
 
         compare(result.sql, 
 `select
@@ -381,9 +407,9 @@ left outer join [sqlquery-inator].[dbo].[Person] as p2 on a.[PersonID] = p2.[ID]
     p2.[LastName],
     a.[StreetAddress1],
     (p.[FirstName]) as 'FirstName2'
-from [sqlquery-inator].[dbo].[Person] as p
-right outer join [sqlquery-inator].[dbo].[Address] as a on p.[ID] = a.[PersonID]
-right outer join [sqlquery-inator].[dbo].[Person] as p2 on a.[PersonID] = p2.[ID]`)
+from [dbo].[Person] as p
+right outer join [dbo].[Address] as a on p.[ID] = a.[PersonID]
+right outer join [dbo].[Person] as p2 on a.[PersonID] = p2.[ID]`)
     });
 
     it('subquery is allowed in join', async () => {
@@ -396,7 +422,7 @@ right outer join [sqlquery-inator].[dbo].[Person] as p2 on a.[PersonID] = p2.[ID
                             return { ...r.p, StreetAddress1: r.a.StreetAddress1, SecondFirstName: r.p2.FirstName }
                         });
 
-        const result = toQuery(dbschema, query.expr);
+        const result = toUnsafeQuery(dbschema, query.expr);
 
         compare(result.sql, 
 `select
@@ -405,14 +431,14 @@ right outer join [sqlquery-inator].[dbo].[Person] as p2 on a.[PersonID] = p2.[ID
     p.[LastName],
     a.[StreetAddress1],
     (p2.[FirstName]) as 'SecondFirstName'
-from [sqlquery-inator].[dbo].[Person] as p
-left outer join [sqlquery-inator].[dbo].[Address] as a on p.[ID] = a.[PersonID]
+from [dbo].[Person] as p
+left outer join [dbo].[Address] as a on p.[ID] = a.[PersonID]
 left outer join (
     select
         p.[ID],
         p.[FirstName],
         p.[LastName]
-    from [sqlquery-inator].[dbo].[Person] as p
+    from [dbo].[Person] as p
     where p.[FirstName] = @v
 ) as p2 on a.[PersonID] = p2.[ID]`)
     });
@@ -420,42 +446,42 @@ left outer join (
     it('Can order by ID', async () => {
         const query = from(Person, 'p').selectAll().orderBy(p => p.ID);
 
-        const result = toQuery(dbschema, query.expr);
+        const result = toUnsafeQuery(dbschema, query.expr);
 
         compare(result.sql, 
 `select
     p.[ID],
     p.[FirstName],
     p.[LastName]
-from [sqlquery-inator].[dbo].[Person] as p
+from [dbo].[Person] as p
 order by p.[ID] ASC`)
     });
 
     it('Can order by ID then by FirstName desc', async () => {
         const query = from(Person, 'p').selectAll().orderBy(p => p.ID).thenByDesc(p => p.FirstName);
 
-        const result = toQuery(dbschema, query.expr);
+        const result = toUnsafeQuery(dbschema, query.expr);
 
         compare(result.sql, 
 `select
     p.[ID],
     p.[FirstName],
     p.[LastName]
-from [sqlquery-inator].[dbo].[Person] as p
+from [dbo].[Person] as p
 order by p.[ID] ASC, p.[FirstName] DESC`)
     })
 
     it('Can limit the result set', async () => {
         const query = from(Person, 'p').selectAll().take(5);
 
-        const result = toQuery(dbschema, query.expr);
+        const result = toUnsafeQuery(dbschema, query.expr);
 
         compare(result.sql, 
 `select top (5)
     p.[ID],
     p.[FirstName],
     p.[LastName]
-from [sqlquery-inator].[dbo].[Person] as p`);
+from [dbo].[Person] as p`);
     })
 
     it('subquery within subquery formats correctly', async () => {
@@ -469,7 +495,7 @@ from [sqlquery-inator].[dbo].[Person] as p`);
                             return { ...r.p, StreetAddress1: r.a.StreetAddress1, SecondFirstName: r.p2.FirstName }
                         });
 
-        const result = toQuery(dbschema, query.expr);
+        const result = toUnsafeQuery(dbschema, query.expr);
 
         compare(result.sql, 
 `select
@@ -478,8 +504,8 @@ from [sqlquery-inator].[dbo].[Person] as p`);
     p.[LastName],
     a.[StreetAddress1],
     (p2.[FirstName]) as 'SecondFirstName'
-from [sqlquery-inator].[dbo].[Person] as p
-left outer join [sqlquery-inator].[dbo].[Address] as a on p.[ID] = a.[PersonID]
+from [dbo].[Person] as p
+left outer join [dbo].[Address] as a on p.[ID] = a.[PersonID]
 left outer join (
     select
         [ID],
@@ -489,7 +515,7 @@ left outer join (
             p.[ID],
             p.[FirstName],
             p.[LastName]
-        from [sqlquery-inator].[dbo].[Person] as p
+        from [dbo].[Person] as p
         where p.[FirstName] = @v
     ) as ta1
 ) as p2 on a.[PersonID] = p2.[ID]`)
@@ -503,14 +529,14 @@ left outer join (
             }
         })
 
-        const result = toQuery(dbschema, query.expr);
+        const result = toUnsafeQuery(dbschema, query.expr);
         compare(result.sql, 
 `select
     p.[ID],
     p.[FirstName],
     p.[LastName],
     (ROW_NUMBER() OVER (ORDER BY p.[ID] ASC)) as 'RowNumber'
-from [sqlquery-inator].[dbo].[Person] as p`)
+from [dbo].[Person] as p`)
 
     });
 
@@ -522,7 +548,7 @@ from [sqlquery-inator].[dbo].[Person] as p`)
             }
         }).where(p => p.RowNumber.greaterThan(10))
 
-        const result = toQuery(dbschema, query.expr);
+        const result = toUnsafeQuery(dbschema, query.expr);
 
         compare(result.sql, 
 `select
@@ -536,7 +562,7 @@ from (
         p.[FirstName],
         p.[LastName],
         (ROW_NUMBER() OVER (ORDER BY p.[ID] ASC)) as 'RowNumber'
-    from [sqlquery-inator].[dbo].[Person] as p
+    from [dbo].[Person] as p
 ) as ta1
 where [RowNumber] > @v`)
     })
@@ -555,7 +581,7 @@ where [RowNumber] > @v`)
             return row;
         })
 
-        const result = toQuery(dbschema, query.expr);
+        const result = toUnsafeQuery(dbschema, query.expr);
 
         compare(result.sql, 
 `select
@@ -574,7 +600,7 @@ from (
             p.[FirstName],
             p.[LastName],
             (ROW_NUMBER() OVER (ORDER BY p.[ID] ASC)) as 'RowNumber'
-        from [sqlquery-inator].[dbo].[Person] as p
+        from [dbo].[Person] as p
     ) as ta1
     where ([RowNumber] > @v AND [RowNumber] < @v1)
 ) as ta1`)
@@ -583,7 +609,7 @@ from (
     it('Can use orderby pagination', async () => {
         const query = from(Person, 'p').selectAll().orderByDesc(r => r.ID).page(2, 10);
 
-        const result = toQuery(dbschema, query.expr);
+        const result = toUnsafeQuery(dbschema, query.expr);
 
         expect(result.parameters['v'].value).eq(10);
         expect(result.parameters['v1'].value).eq(20);
@@ -599,7 +625,7 @@ from (
         p.[ID],
         p.[FirstName],
         p.[LastName]
-    from [sqlquery-inator].[dbo].[Person] as p
+    from [dbo].[Person] as p
 ) as ta1
 where ([_RowNumber] > @v AND [_RowNumber] <= @v1)`)
     })
@@ -610,15 +636,15 @@ where ([_RowNumber] > @v AND [_RowNumber] <= @v1)`)
                         .orderByDesc(r => r.p2.ID)
                         .select(r => ({ ...r.p}))
 
-        const result = toQuery(dbschema, query.expr);
+        const result = toUnsafeQuery(dbschema, query.expr);
 
         compare(result.sql, 
 `select
     p.[ID],
     p.[FirstName],
     p.[LastName]
-from [sqlquery-inator].[dbo].[Person] as p
-join [sqlquery-inator].[dbo].[Person] as p2 on p.[ID] = p2.[ID]
+from [dbo].[Person] as p
+join [dbo].[Person] as p2 on p.[ID] = p2.[ID]
 order by p2.[ID] DESC`)
     })
 
@@ -632,21 +658,21 @@ order by p2.[ID] DESC`)
                         .join(subquery, 's').on(r => r.p.ID.equals(r.s.ID))
                         .select(r => ({ ...r.s}))
 
-        const result = toQuery(dbschema, query.expr);
+        const result = toUnsafeQuery(dbschema, query.expr);
 
         compare(result.sql, 
 `select
     s.[ID],
     s.[FirstName],
     s.[LastName]
-from [sqlquery-inator].[dbo].[Person] as p
+from [dbo].[Person] as p
 join (
     select
         p.[ID],
         p.[FirstName],
         p.[LastName]
-    from [sqlquery-inator].[dbo].[Person] as p
-    join [sqlquery-inator].[dbo].[Person] as p2 on p.[ID] = p2.[ID]
+    from [dbo].[Person] as p
+    join [dbo].[Person] as p2 on p.[ID] = p2.[ID]
 ) as s on p.[ID] = s.[ID]`)
     })
 
@@ -655,7 +681,7 @@ join (
 
         const query = from(subquery, 'p2').selectAll();
 
-        const result = toQuery(dbschema, query.expr);
+        const result = toUnsafeQuery(dbschema, query.expr);
 
         compare(result.sql,
 `select
@@ -667,7 +693,7 @@ from (
         p.[ID],
         p.[FirstName],
         p.[LastName]
-    from [sqlquery-inator].[dbo].[Person] as p
+    from [dbo].[Person] as p
 ) as p2`)
     })
 
@@ -678,7 +704,7 @@ from (
                         .join(Address, 'a').on(r => r.p2.ID.equals(r.a.PersonID))
                         .select(r => { return { ...r.p2}})
 
-        const result = toQuery(dbschema, query.expr);
+        const result = toUnsafeQuery(dbschema, query.expr);
 
         compare(result.sql,
 `select
@@ -690,9 +716,9 @@ from (
         p.[ID],
         p.[FirstName],
         p.[LastName]
-    from [sqlquery-inator].[dbo].[Person] as p
+    from [dbo].[Person] as p
 ) as p2
-join [sqlquery-inator].[dbo].[Address] as a on p2.[ID] = a.[PersonID]
+join [dbo].[Address] as a on p2.[ID] = a.[PersonID]
 `)
     })
 
@@ -704,7 +730,7 @@ join [sqlquery-inator].[dbo].[Address] as a on p2.[ID] = a.[PersonID]
                         .join(subquery2, 'p3').on(r => r.p2.ID.equals(r.p3.ID))
                         .select(r => { return { ...r.p2}})
 
-        const result = toQuery(dbschema, query.expr);
+        const result = toUnsafeQuery(dbschema, query.expr);
 
         compare(result.sql,
 `select
@@ -716,14 +742,14 @@ from (
         p.[ID],
         p.[FirstName],
         p.[LastName]
-    from [sqlquery-inator].[dbo].[Person] as p
+    from [dbo].[Person] as p
 ) as p2
 join (
     select
         p2.[ID],
         p2.[FirstName],
         p2.[LastName]
-    from [sqlquery-inator].[dbo].[Person] as p2
+    from [dbo].[Person] as p2
 ) as p3 on p2.[ID] = p3.[ID]
 `)
     })
@@ -741,7 +767,7 @@ join (
                         .join(Address, 'a').on(r => r.p2.ID.equals(r.a.PersonID))
                         .select(r => { return { ...r.p2 } })
 
-        const result = toQuery(dbschema, query.expr);
+        const result = toUnsafeQuery(dbschema, query.expr);
         
         compare(result.sql, 
 `select
@@ -761,11 +787,11 @@ from (
             p.[FirstName],
             p.[LastName],
             (ROW_NUMBER() OVER (ORDER BY p.[ID] ASC)) as 'RowNumber'
-        from [sqlquery-inator].[dbo].[Person] as p
+        from [dbo].[Person] as p
     ) as ta1
     where [RowNumber] > @v
 ) as p2
-join [sqlquery-inator].[dbo].[Address] as a on p2.[ID] = a.[PersonID]
+join [dbo].[Address] as a on p2.[ID] = a.[PersonID]
     `)
     })
 
@@ -774,12 +800,12 @@ join [sqlquery-inator].[dbo].[Address] as a on p2.[ID] = a.[PersonID]
                         .select(p => { return { FirstName: p.FirstName } })
                         .distinct();
 
-        const result = toQuery(dbschema, query.expr);
+        const result = toUnsafeQuery(dbschema, query.expr);
 
         compare(result.sql,
 `select distinct
     p.[FirstName]
-from [sqlquery-inator].[dbo].[Person] as p
+from [dbo].[Person] as p
 `)
     })
 
@@ -789,12 +815,12 @@ from [sqlquery-inator].[dbo].[Person] as p
                         .distinct()
                         .take(100);
 
-        const result = toQuery(dbschema, query.expr);
+        const result = toUnsafeQuery(dbschema, query.expr);
 
         compare(result.sql,
 `select distinct top (100)
     p.[FirstName]
-from [sqlquery-inator].[dbo].[Person] as p
+from [dbo].[Person] as p
 `)
     })
 
@@ -805,13 +831,13 @@ from [sqlquery-inator].[dbo].[Person] as p
                         .select(r => { return { FirstName: r.FirstName, count: COUNT() }})
                         
 
-        const result = toQuery(dbschema, query.expr); 
+        const result = toUnsafeQuery(dbschema, query.expr); 
         
         compare(result.sql,
 `select
     p.[FirstName],
     (COUNT(*)) as 'count'
-from [sqlquery-inator].[dbo].[Person] as p
+from [dbo].[Person] as p
 group by p.[FirstName]`)
     })
 
@@ -822,14 +848,14 @@ group by p.[FirstName]`)
                         .select(r => { return { FirstName: r.FirstName, count: COUNT() }})
                         
 
-        const result = toQuery(dbschema, query.expr);
+        const result = toUnsafeQuery(dbschema, query.expr);
 
         compare(result.sql,
 `select
     p.[FirstName],
     (COUNT(*)) as 'count'
-from [sqlquery-inator].[dbo].[Person] as p
-join [sqlquery-inator].[dbo].[Address] as a on p.[ID] = a.[PersonID]
+from [dbo].[Person] as p
+join [dbo].[Address] as a on p.[ID] = a.[PersonID]
 group by p.[FirstName]`)
     })
 
@@ -840,7 +866,7 @@ group by p.[FirstName]`)
                         .count()
                         
 
-        const result = toQuery(dbschema, query.expr);
+        const result = toUnsafeQuery(dbschema, query.expr);
         
         compare(result.sql,
 `select
@@ -850,7 +876,7 @@ from (
         p.[ID],
         p.[FirstName],
         p.[LastName]
-    from [sqlquery-inator].[dbo].[Person] as p
+    from [dbo].[Person] as p
     where p.[FirstName] = @v
 ) as ta1
 `)
@@ -862,7 +888,7 @@ from (
                         .count(p => p.FirstName)
                         
 
-        const result = toQuery(dbschema, query.expr);
+        const result = toUnsafeQuery(dbschema, query.expr);
 
         compare(result.sql,
 `select
@@ -872,7 +898,7 @@ from (
         p.[ID],
         p.[FirstName],
         p.[LastName]
-    from [sqlquery-inator].[dbo].[Person] as p
+    from [dbo].[Person] as p
 ) as ta1`)
     })
 
@@ -881,12 +907,12 @@ from (
                         .select(p => { return { avg: AVG(p.ID) }});
                         
 
-        const result = toQuery(dbschema, query.expr);
+        const result = toUnsafeQuery(dbschema, query.expr);
 
         compare(result.sql,
 `select
     (AVG(p.[ID])) as 'avg'
-from [sqlquery-inator].[dbo].[Person] as p`)
+from [dbo].[Person] as p`)
     })
 
     it('Can use SUM', async () => {
@@ -894,12 +920,12 @@ from [sqlquery-inator].[dbo].[Person] as p`)
                         .select(p => { return { sum: SUM(p.ID) }});
                         
 
-        const result = toQuery(dbschema, query.expr);
+        const result = toUnsafeQuery(dbschema, query.expr);
 
         compare(result.sql,
 `select
     (SUM(p.[ID])) as 'sum'
-from [sqlquery-inator].[dbo].[Person] as p`)
+from [dbo].[Person] as p`)
     })
 
     it('Can use MAX', async () => {
@@ -907,12 +933,12 @@ from [sqlquery-inator].[dbo].[Person] as p`)
                         .select(p => ({ max: MAX(p.ID) }));
                         
 
-        const result = toQuery(dbschema, query.expr);
+        const result = toUnsafeQuery(dbschema, query.expr);
 
         compare(result.sql,
 `select
     (MAX(p.[ID])) as 'max'
-from [sqlquery-inator].[dbo].[Person] as p`)
+from [dbo].[Person] as p`)
     })
 
     it('Can use MIN', async () => {
@@ -920,12 +946,12 @@ from [sqlquery-inator].[dbo].[Person] as p`)
                         .select(p => ({ min: MIN(p.ID) }));
                         
 
-        const result = toQuery(dbschema, query.expr);
+        const result = toUnsafeQuery(dbschema, query.expr);
 
         compare(result.sql,
 `select
     (MIN(p.[ID])) as 'min'
-from [sqlquery-inator].[dbo].[Person] as p`)
+from [dbo].[Person] as p`)
     })
 
     it('Can use where clause on join', async () => {
@@ -934,15 +960,15 @@ from [sqlquery-inator].[dbo].[Person] as p`)
                         .where(r => r.p.FirstName.equals('Heinz'))
                         .select(r => ({ ...r.p}))
 
-        const result = toQuery(dbschema, query.expr);
+        const result = toUnsafeQuery(dbschema, query.expr);
         
         compare(result.sql,
 `select
     p.[ID],
     p.[FirstName],
     p.[LastName]
-from [sqlquery-inator].[dbo].[Person] as p
-join [sqlquery-inator].[dbo].[Person] as p2 on p.[ID] = p2.[ID]
+from [dbo].[Person] as p
+join [dbo].[Person] as p2 on p.[ID] = p2.[ID]
 where p.[FirstName] = @v`)
     })
 
@@ -954,16 +980,16 @@ where p.[FirstName] = @v`)
                         .where(r => r.p3.LastName.equals('Doofenschmirtz'))
                         .select(r => ({ ...r.p}))
 
-        const result = toQuery(dbschema, query.expr);
+        const result = toUnsafeQuery(dbschema, query.expr);
         
         compare(result.sql,
 `select
     p.[ID],
     p.[FirstName],
     p.[LastName]
-from [sqlquery-inator].[dbo].[Person] as p
-join [sqlquery-inator].[dbo].[Person] as p2 on p.[ID] = p2.[ID]
-join [sqlquery-inator].[dbo].[Person] as p3 on p2.[ID] = p.[ID]
+from [dbo].[Person] as p
+join [dbo].[Person] as p2 on p.[ID] = p2.[ID]
+join [dbo].[Person] as p3 on p2.[ID] = p.[ID]
 where (p.[FirstName] = @v AND p3.[LastName] = @v1)`)
     })
 
@@ -985,20 +1011,20 @@ where (p.[FirstName] = @v AND p3.[LastName] = @v1)`)
                         
                         
 
-        const result = toQuery(dbschema, query.expr);
+        const result = toUnsafeQuery(dbschema, query.expr);
 
         compare(result.sql,
 `select
     p2.[ID],
     p2.[FirstName],
     p2.[LastName]
-from [sqlquery-inator].[dbo].[Person] as p
+from [dbo].[Person] as p
 join (
     select
         p.[ID],
         p.[FirstName],
         p.[LastName]
-    from [sqlquery-inator].[dbo].[Person] as p
+    from [dbo].[Person] as p
     where p.[FirstName] = @v1
 ) as p2 on p.[ID] = p2.[ID]
 join (
@@ -1007,24 +1033,24 @@ join (
         a.[PersonID],
         a.[StreetAddress1],
         a.[StreetAddress2]
-    from [sqlquery-inator].[dbo].[Address] as a
+    from [dbo].[Address] as a
     where a.[StreetAddress1] = @v2
 ) as a2 on a2.[PersonID] = p.[ID]
-join [sqlquery-inator].[dbo].[Address] as a on a2.[ID] = a.[ID]
+join [dbo].[Address] as a on a2.[ID] = a.[ID]
 where p.[FirstName] = @v`)
     })
 
     it('Can use OR in where clause', async () => {
         const query = from(Person, 'p').selectAll().where(p => p.FirstName.equals('Heinz').or(p.LastName.equals('Doofenschmirtz')))
 
-        const result = toQuery(dbschema, query.expr);
+        const result = toUnsafeQuery(dbschema, query.expr);
 
         compare(result.sql, 
 `select
     p.[ID],
     p.[FirstName],
     p.[LastName]
-from [sqlquery-inator].[dbo].[Person] as p
+from [dbo].[Person] as p
 where (p.[FirstName] = @v OR p.[LastName] = @v1)`)
     });
 
@@ -1041,14 +1067,14 @@ where (p.[FirstName] = @v OR p.[LastName] = @v1)`)
             .or(p.ID.equals(1))
         )
 
-        const result = toQuery(dbschema, query.expr);
+        const result = toUnsafeQuery(dbschema, query.expr);
 
         compare(result.sql, 
 `select
     p.[ID],
     p.[FirstName],
     p.[LastName]
-from [sqlquery-inator].[dbo].[Person] as p
+from [dbo].[Person] as p
 where (((p.[FirstName] = @v AND p.[LastName] = @v1) OR (p.[LastName] = @v2 AND p.[FirstName] = @v3)) OR p.[ID] = @v4)`)
     });
 });
