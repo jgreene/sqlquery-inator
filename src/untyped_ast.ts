@@ -72,7 +72,7 @@ export class TableReferenceExpr extends Expr {
 export const isTableReferenceExpr = is<TableReferenceExpr>('TableReferenceExpr')
 
 type JoinOptions = {
-    parent: Expr
+    parent: SelectStatementExpr | JoinExpr | FromExpr | FromSelectExpr
     joinType: JoinType
     joinSource: Expr
     alias: string
@@ -85,7 +85,7 @@ type JoinOptions = {
 
 export class JoinExpr extends Expr {
     readonly _tag = 'JoinExpr'
-    public parent: Expr
+    public parent: SelectStatementExpr | JoinExpr | FromExpr | FromSelectExpr
     public joinType: JoinType
     public joinSource: Expr
     public alias: string
@@ -219,7 +219,7 @@ export const isStarExpr = is<StarExpr>('StarExpr')
 
 type SelectOptions = {
     projection: ProjectionExpr
-    from?: Expr | undefined, 
+    from?: SelectStatementExpr | JoinExpr | FromExpr | FromSelectExpr | undefined, 
     where?: Expr | undefined, 
     alias?: string | undefined,
     orderBy?: OrderByExpr | undefined,
@@ -233,12 +233,12 @@ export class SelectStatementExpr extends Expr {
     readonly _tag = 'SelectStatementExpr'
 
     public readonly projection: ProjectionExpr
-    public readonly from?: Expr | undefined
+    public readonly from?: SelectStatementExpr | JoinExpr | FromExpr | FromSelectExpr | undefined
     public readonly where?: Expr | undefined
     public readonly alias?: string | undefined
     public readonly orderBy?: OrderByExpr | undefined
     public readonly take?: TakeExpr | undefined
-    public readonly distinct?: boolean
+    public readonly distinct?: boolean | undefined
     public readonly groupBy?: GroupByExpr | undefined
 
     constructor(

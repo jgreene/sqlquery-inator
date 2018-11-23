@@ -7,15 +7,15 @@ export type ColumnType = ut.ColumnType
 type Constructor<T> = new (...args: any[]) => T
 type Table<T> = Constructor<tdc.ITyped<any, T, any, t.mixed>>
 
-type Row<T> = {
+export type Row<T> = {
     [P in keyof T]: T[P] extends ColumnExpr<infer U> ? T[P] : T[P] extends ColumnType ? ColumnExpr<T[P]> : never
 }
 
-type ToOuterRow<T> = {
+export type ToOuterRow<T> = {
     [P in keyof T]: T[P] extends ColumnType ? ColumnExpr<T[P] | null> : T[P] extends ColumnExpr<infer U> ? ColumnExpr<U | null> : never
 }
 
-type AggregateRow<T> = {
+export type AggregateRow<T> = {
     [P in keyof T]: T[P] extends AggregateColumnExpr<infer U> ? T[P] : never
 }
 
@@ -89,6 +89,10 @@ export class ColumnExpr<C extends ColumnType> extends TypedExpr<C> {
 
     lessThanOrEquals<T, C2 extends ColumnType>(c2: C2 | ColumnExpr<C2>): PredicateExpr<T> {
         return operators.lessThanOrEquals<T, C, C2>(this, c2);
+    }
+
+    as<TName extends string>(name: TName): AsExpr<C, TName> {
+        return as<C, TName>(this, name)
     }
 
     get asc(): OrderColumnExpr<C> {
@@ -772,6 +776,8 @@ export class JoinExpr<T> extends TypedExpr<T> {
     rightOuterJoin<R, RAlias extends string>(right: SelectExpr<R> | FromExpr<R, RAlias> | Table<R>, alias: RAlias): RightOuterJoinBuilder<T, R, RAlias> {
         return new RightOuterJoinBuilder<T, R, RAlias>(this.aliases, this.expr, right, alias);
     }
+
+    
 
     select<Projection>(func: (r: T) => Row<Projection>): 
         SelectExpr<Projection>
