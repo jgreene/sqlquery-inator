@@ -64,8 +64,9 @@ function GetFromSql(expr: ut.Expr, ctx: Context): string {
 
     if(ctx.getTableSchema){
         const table = ctx.getTableSchema(expr.tableName);
-        return `from [${table.name.schema}].[${table.name.name}] as ${expr.alias}`
-    }    
+        const alias = mapTableAlias(ctx, expr.alias);
+        return `from [${table.name.schema}].[${table.name.name}] as ${alias}`
+    }
     
     //UNSAFE BRANCH
     return `from ${toBracketedTableName(expr.tableName)} as ${expr.alias}`
@@ -110,20 +111,30 @@ function GetJoinSql(expr: ut.Expr, ctx: Context): string {
         return toSql(expr.joinSource, ctx)
     })();
 
+    const alias = ctx.getTableSchema ? mapTableAlias(ctx, expr.alias) : expr.alias;
+
     const predicateSql = toSql(expr.on, ctx);
     const where = expr.where ? '\n' + toSql(expr.where, ctx) : '';
     //const orderBy = expr.orderBy ? '\norder by ' + toSql(expr.orderBy, ctx) : '';
     const groupBy = expr.groupBy ? '\n' + toSql(expr.groupBy, ctx) : '';
+
     
-    return `${parentSql}\n${joinTypeSql} ${joinSourceSql} as ${expr.alias} on ${predicateSql}${where}${groupBy}`
+    
+    return `${parentSql}\n${joinTypeSql} ${joinSourceSql} as ${alias} on ${predicateSql}${where}${groupBy}`
 }
 
-function GetProjectionSql(expr: ut.Expr, ctx: Context, alias?: string | undefined) {
+function GetProjectionSql(expr: ut.Expr, ctx: Context, tableAlias?: string | undefined) {
     if(!ut.isProjectionExpr(expr)) {
         throw new Error('not a projection expression!');
     }
 
-    const projections = expr.projections.map(p => indent(alias ? `${alias}.${toSql(p, ctx)}` : toSql(p, ctx), ctx)).join(',\n')
+    tableAlias = tableAlias && ctx.getTableSchema ? mapTableAlias(ctx, tableAlias) : tableAlias;
+
+    const projections = expr.projections.map(p => {
+        const projectionSql = toSql(p, ctx);
+        return indent(tableAlias ? `${tableAlias}.${projectionSql}` : projectionSql, ctx)
+    }).join(',\n');
+
     return projections;
 }
 
@@ -131,17 +142,20 @@ function GetSelectSql(expr: ut.Expr, parentCtx: Context): string {
     if(!ut.isSelectStatementExpr(expr)) {
         throw new Error('Not a select expression!');
     }
-    const ctx = { 
-        parameters: parentCtx.parameters, 
-        aliasCount: 0, 
-        column_aliases: {}, 
-        tableAliasCount: 0, 
-        table_aliases: {}, 
+    const ctx: Context = {
+        parameters: parentCtx.parameters,
+        columnAliasCount: parentCtx.columnAliasCount,
+        column_aliases: parentCtx.column_aliases,
+        tableAliasCount: 0,
+        table_aliases: {},
+        field_ctx: GetNewFieldContext(),
         indent_level: parentCtx.indent_level,
-        getTable: parentCtx.getTableSchema
+        getTableSchema: parentCtx.getTableSchema
     };
 
-    return GetSelectSqlInternal(expr, ctx);
+    const result = GetSelectSqlInternal(expr, ctx);
+    parentCtx.field_ctx = ctx.field_ctx;
+    return result;
 }
 
 function GetSelectSqlInternal(expr: ut.Expr, ctx: Context): string {
@@ -151,23 +165,23 @@ function GetSelectSqlInternal(expr: ut.Expr, ctx: Context): string {
 
     const top = expr.take ? ` top (${parseInt(expr.take.take.toString())})` : '';
     const distinct = expr.distinct === true ? ` distinct` : '';
-
-    const alias = expr.alias || getTableAlias(ctx);
+    const alias = expr.alias && ctx.getTableSchema ? mapTableAlias(ctx, expr.alias) : expr.alias || insertAndGetTableAlias(ctx);
+    const isFromChildSelect = ut.isSelectStatementExpr(expr.from);
+    const from = expr.from ? toSql(expr.from, ctx) : '';
     const projections = GetProjectionSql(expr.projection, increaseIndent(ctx), expr.alias);
-    const isFromChildSelect = ut.isSelectStatementExpr(expr.from)
     const where = expr.where ? '\n' + toSql(expr.where, ctx) : '';
     const groupBy = expr.groupBy ? '\n' + toSql(expr.groupBy, ctx) : '';
-    const orderBy = expr.orderBy ? '\norder by ' + toSql(expr.orderBy, ctx) : ''
+    const orderBy = expr.orderBy ? '\norder by ' + toSql(expr.orderBy, ctx) : '';
 
     const select = `select${distinct}${top}\n`;
     
     if(!isFromChildSelect){
-        const from = expr.from ? '\n' + toSql(expr.from, ctx) : '';
-        return `${select}${projections}${from}${where}${groupBy}${orderBy}`;
+        const selectFrom = (from.length > 0 ? '\n' + from : '');
+        return `${select}${projections}${selectFrom}${where}${groupBy}${orderBy}`;
     }
 
     const innerCtx = increaseIndent(ctx);
-    const sourceSql = indent(toSql(expr.from, ctx), innerCtx);
+    const sourceSql = indent(from, innerCtx);
     
     const source = `(\n${sourceSql}\n) as ${alias}`
     return `${select}${projections}\nfrom ${source}${where}${groupBy}${orderBy}`;
@@ -196,13 +210,19 @@ function toSql(expr: ut.Expr | undefined, ctx: Context): string {
     if(ut.isFromSelectExpr(expr)){
         const newCtx = increaseIndent(ctx);
         const select = indent(toSql(expr.expr, ctx), newCtx);
+        if(ctx.getTableSchema){
+            const alias = mapTableAlias(ctx, expr.alias)
+            return `from (\n${select}\n) as ${alias}`
+        }
+
+        //UNSAFE BRANCH
         return `from (\n${select}\n) as ${expr.alias}`
     }
 
     if(ut.isTableReferenceExpr(expr)) {
         if(ctx.getTableSchema){
             const table = ctx.getTableSchema(expr.tableName);
-            return `[${table.name.db_name}].[${table.name.schema}].[${table.name.name}]`;
+            return `[${table.name.schema}].[${table.name.name}]`;
         }
         
         //UNSAFE BRANCH
@@ -225,6 +245,10 @@ function toSql(expr: ut.Expr | undefined, ctx: Context): string {
     if(ut.isAggregateFunctionExpr(expr)) {
         const arg = toSql(expr.arg, ctx);
         const distinct = expr.distinct ? 'DISTINCT ' : ''
+
+        if(ctx.getTableSchema && ut.isValidFunction(expr.name) !== true){
+            throw new Error('Invalid aggregate function: ' + expr.name);
+        }
 
         return `${expr.name}(${distinct}${arg})`;
     }
@@ -274,21 +298,11 @@ function toSql(expr: ut.Expr | undefined, ctx: Context): string {
         return GetProjectionSql(expr, ctx);
     }
 
-    if(ut.isAsExpr(expr)) {
-        const left = toSql(expr.left, ctx);
-        if(ut.isColumnExpr(expr.left) && expr.left.columnName === expr.alias){
-            return left;
-        }
-
-        if(ut.isFieldExpr(expr.left) && expr.left.name === expr.alias){
-            return left;
+    if(ut.isScalarFunctionExpr(expr)) {
+        if(ctx.getTableSchema && !ut.isValidFunction(expr.name)){
+            throw new Error('Invalid scalar function')
         }
         
-        //const alias = insertColumnAlias(ctx, expr.alias)
-        return `(${left}) as '${expr.alias}'`;
-    }
-
-    if(ut.isScalarFunctionExpr(expr)) {
         const args = expr.args.map(a => toSql(a, ctx)).join(', ')
         return `${expr.name}(${args})`
     }
@@ -299,6 +313,27 @@ function toSql(expr: ut.Expr | undefined, ctx: Context): string {
         return `@${parameter.name}`;
     }
 
+    if(ut.isAsExpr(expr)) {
+        const left = toSql(expr.left, ctx);
+        if(ut.isColumnExpr(expr.left) && expr.left.columnName === expr.alias){
+            return left;
+        }
+
+        if(ut.isFieldExpr(expr.left) && expr.left.name === expr.alias){
+            return left;
+        }
+
+        if(ctx.getTableSchema){
+            const alias = mapColumnAlias(ctx, expr.alias)
+            ctx.field_ctx.addValidField(alias);
+            return `(${left}) as '${alias}'`;
+        }
+
+        //UNSAFE BRANCH
+        const alias = expr.alias;
+        return `(${left}) as '${alias}'`;
+    }
+
     if(ut.isColumnExpr(expr)){
         if(ctx.getTableSchema){
             const table = ctx.getTableSchema(expr.tableName);
@@ -307,16 +342,26 @@ function toSql(expr: ut.Expr | undefined, ctx: Context): string {
             {
                 throw new Error(`Could not find column ${expr.columnName} in ${expr.tableName}!`);
             }
-            const alias = expr.alias;
-            return alias ? `${alias}.[${column.name}]` : `[${column.name}]`;
+
+            ctx.field_ctx.addValidField(column.name);
+            
+            const tableAlias = expr.alias ? mapTableAlias(ctx, expr.alias) : undefined;
+            return tableAlias ? `${tableAlias}.[${column.name}]` : `[${column.name}]`;
         }
 
         //UNSAFE BRANCH
-        const alias = expr.alias;
-        return alias ? `${alias}.[${expr.columnName}]` : `[${expr.columnName}]`;
+        const tableAlias = expr.alias;
+        return tableAlias ? `${tableAlias}.[${expr.columnName}]` : `[${expr.columnName}]`;
     }
 
     if(ut.isFieldExpr(expr)) {
+        if(ctx.getTableSchema){
+            const tableAlias = expr.alias ? mapTableAlias(ctx, expr.alias) : undefined;
+            const name = ctx.field_ctx.isValidField(expr.name) ? expr.name : mapColumnAlias(ctx, expr.name);
+            return tableAlias ? `${tableAlias}.[${name}]` : `[${name}]`;
+        }
+
+        //UNSAFE BRANCH
         const alias = expr.alias;
         return alias ? `${alias}.[${expr.name}]` : `[${expr.name}]`;
     }
@@ -336,26 +381,41 @@ function toSql(expr: ut.Expr | undefined, ctx: Context): string {
     throw new Error('Could not generate query for expr: ' + JSON.stringify(expr, null, 2));
 }
 
-function insertColumnAlias(ctx: Context, alias: string): string {
-    ctx.aliasCount = ctx.aliasCount + 1;
-    const alias_id = 'alias' + ctx.aliasCount;
-    ctx.column_aliases[alias_id] = alias;
-    return alias_id;
+type ValidFieldContext = {
+    valid_fields: string[],
+    addValidField: (fieldName: string) => void,
+    isValidField: (fieldName: string) => boolean,
+    ensureIsValidField: (fieldName: string) => void
 }
 
-function getTableAlias(ctx: Context): string {
-    ctx.tableAliasCount = ctx.tableAliasCount + 1;
-    const alias_id = 'ta' + ctx.tableAliasCount;
-    ctx.table_aliases[alias_id] = alias_id;
-    return alias_id;
+function GetNewFieldContext(): ValidFieldContext {
+    return {
+        valid_fields: [],
+        addValidField(fieldName: string) {
+            if(this.isValidField(fieldName)){
+                return;
+            }
+
+            this.valid_fields.push(fieldName);
+        },
+        isValidField(fieldName: string) {
+            return this.valid_fields.indexOf(fieldName) !== -1
+        },
+        ensureIsValidField(fieldName: string){
+            if(this.isValidField(fieldName) !== true){
+                throw new Error('Invalid field: ' + fieldName);
+            }
+        }
+    }
 }
 
 export type Context = {
     parameters: query.SqlParameters,
-    aliasCount: number,
+    columnAliasCount: number,
     column_aliases: { [key: string]: string },
     tableAliasCount: number,
     table_aliases: { [key: string]: string },
+    field_ctx: ValidFieldContext,
     indent_level: number,
     getTableSchema?: ((tableName: string) => TableSchema) | undefined
 }
@@ -371,17 +431,20 @@ export type QueryOptions = {
     getTableSchema?: ((tableName: string) => TableSchema) | undefined
 }
 
+
+
 export function toQuery(expr: ut.SelectStatementExpr, options: QueryOptions): query.SqlQuery {
     if(options.allowSqlInjection !== true && options.getTableSchema === undefined){
-        throw new Error('getTableSchema must be defined when unsafeAllowSqlInjection is false!')
+        throw new Error('getTableSchema must be defined when allowSqlInjection is not true!')
     }
 
-    const ctx = {
+    const ctx: Context = {
         parameters: {},
-        aliasCount: 0,
+        columnAliasCount: 0,
         column_aliases: {},
         tableAliasCount: 0,
         table_aliases: {},
+        field_ctx: GetNewFieldContext(),
         indent_level: 0,
         getTableSchema: options.getTableSchema
     };
@@ -392,18 +455,34 @@ export function toQuery(expr: ut.SelectStatementExpr, options: QueryOptions): qu
         column_aliases: ctx.column_aliases,
         parameters: ctx.parameters
     }
-
 }
 
-function GetNextAlias(alias: string): string {
-    if(alias.length === 1){
-        alias = alias + '1';
-        return alias;
+function mapColumnAlias(ctx: Context, alias: string): string {
+    const mappedAlias = ctx.column_aliases[alias];
+    if(mappedAlias !== undefined){
+        return mappedAlias;
     }
 
-    const start = alias.substr(0, 1);
-    const rest = alias.substr(1, alias.length - 2);
-    const id = parseInt(rest, 10) || 2;
-    const newId = id + 1;
-    return start + (newId.toString())
+    ctx.columnAliasCount = ctx.columnAliasCount + 1;
+    const alias_id = 'ca' + ctx.columnAliasCount;
+    ctx.column_aliases[alias] = alias_id;
+    return alias_id;
+}
+
+function mapTableAlias(ctx: Context, alias: string): string {
+    const mappedAlias = ctx.table_aliases[alias]
+    if(mappedAlias !== undefined){
+        return mappedAlias;
+    }
+
+    const newAlias = insertAndGetTableAlias(ctx);
+    ctx.table_aliases[alias] = newAlias;
+    return newAlias;
+}
+
+function insertAndGetTableAlias(ctx: Context): string {
+    ctx.tableAliasCount = ctx.tableAliasCount + 1;
+    const alias_id = 'ta' + ctx.tableAliasCount;
+    ctx.table_aliases[alias_id] = alias_id;
+    return alias_id;
 }

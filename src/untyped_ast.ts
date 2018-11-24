@@ -1,5 +1,22 @@
 import * as moment from 'moment'
 
+const validScalarFunctionNames = [
+    'ISNULL',
+    'COUNT',
+    'MAX',
+    'MIN',
+    'SUM',
+    'AVG'
+]
+
+export function registerFunction(name: string) {
+    validScalarFunctionNames.push(name);
+}
+
+export function isValidFunction(name: string): boolean {
+    return validScalarFunctionNames.indexOf(name) !== -1;
+}
+
 export type ColumnType = boolean | number | string | moment.Moment | null
 
 function is<T extends Expr>(tag: string) {
@@ -200,7 +217,7 @@ export const isAsExpr = is<AsExpr>('AsExpr')
 export class ProjectionExpr extends Expr {
     readonly _tag = 'ProjectionExpr'
 
-    constructor(public projections: Expr[]) {
+    constructor(public projections: Array<Expr>) {
         super()
     }
 }

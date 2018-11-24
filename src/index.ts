@@ -30,6 +30,10 @@ export function registerTable<T>(ctor: Constructor<T>, tableName: string) {
     tableNameMap[ctor as any] = tableName;
 }
 
+export function registerFunction(name: string) {
+    ut.registerFunction(name);
+}
+
 export function getTableFromType(ctor: Table<any>): string {
     const name = tableNameMap[ctor as any];
     if(name === undefined){
