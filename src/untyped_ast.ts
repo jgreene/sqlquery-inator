@@ -19,7 +19,15 @@ export function isValidFunction(name: string): boolean {
 
 export type ColumnType = boolean | number | string | moment.Moment | null
 
+export const allTags: string[] = []
+function addTag(tag: string) {
+    if(allTags.indexOf(tag) === -1){
+        allTags.push(tag);
+    }
+}
+
 function is<T extends Expr>(tag: string) {
+    addTag(tag);
     return function(input: Expr | undefined): input is T {
         return !!input && (input as any)['_tag'] === tag
     }
@@ -251,7 +259,7 @@ export class SelectStatementExpr extends Expr {
 
     public readonly projection: ProjectionExpr
     public readonly from?: SelectStatementExpr | JoinExpr | FromExpr | FromSelectExpr | undefined
-    public readonly where?: Expr | undefined
+    public readonly where?: WhereExpr | undefined
     public readonly alias?: string | undefined
     public readonly orderBy?: OrderByExpr | undefined
     public readonly take?: TakeExpr | undefined
@@ -339,6 +347,3 @@ export class EmptyStringExpr extends Expr {
 }
 
 export const isEmptyStringExpr = is<EmptyStringExpr>('EmptyStringExpr')
-
-
-

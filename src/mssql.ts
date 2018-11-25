@@ -202,7 +202,7 @@ function GetOrderBySql(expr: ut.Expr | undefined, ctx: Context): string {
     return `${column} ${direction}`;
 }
 
-function toSql(expr: ut.Expr | undefined, ctx: Context): string {
+export function toSql(expr: ut.Expr | undefined, ctx: Context): string {
     if(expr === undefined){
         return ''
     }
@@ -431,9 +431,7 @@ export type QueryOptions = {
     getTableSchema?: ((tableName: string) => TableSchema) | undefined
 }
 
-
-
-export function toQuery(expr: ut.SelectStatementExpr, options: QueryOptions): query.SqlQuery {
+export function createContext(options: QueryOptions): Context {
     if(options.allowSqlInjection !== true && options.getTableSchema === undefined){
         throw new Error('getTableSchema must be defined when allowSqlInjection is not true!')
     }
@@ -448,6 +446,12 @@ export function toQuery(expr: ut.SelectStatementExpr, options: QueryOptions): qu
         indent_level: 0,
         getTableSchema: options.getTableSchema
     };
+
+    return ctx;
+}
+
+export function toQuery(expr: ut.SelectStatementExpr, options: QueryOptions): query.SqlQuery {
+    const ctx = createContext(options);
     const sql = toSql(expr, ctx);
 
     return {

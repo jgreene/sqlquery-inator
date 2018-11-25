@@ -9,21 +9,19 @@ import { DBSchema, ColumnSchema, TableSchema } from 'dbschema-inator';
 
 const tableCache: { [key: string]: TableSchema } = {};
 
-function getFindTable(schema: DBSchema) {
-    return function(tableName: string) {
-        const cached = tableCache[tableName];
-        if(cached !== undefined){
-            return cached;
-        }
-
-        const table = schema.tables.find(t => `${t.name.schema}.${t.name.name}` === tableName);
-        if(table === undefined){
-            throw new Error(`Could not find table ${tableName} in schema!`);
-        }
-
-        tableCache[tableName] = table;
-        return table;
+export function getFindTable(tableName: string) {
+    const cached = tableCache[tableName];
+    if(cached !== undefined){
+        return cached;
     }
+
+    const table = dbschema.tables.find(t => `${t.name.schema}.${t.name.name}` === tableName);
+    if(table === undefined){
+        throw new Error(`Could not find table ${tableName} in schema!`);
+    }
+
+    tableCache[tableName] = table;
+    return table;
 }
 
 export function toUnsafeQuery(expr: ut.SelectStatementExpr){
@@ -35,7 +33,7 @@ export function toUnsafeQuery(expr: ut.SelectStatementExpr){
 export function toSafeQuery(expr: ut.SelectStatementExpr){
     return toQuery(expr, {
         allowSqlInjection: false,
-        getTableSchema: getFindTable(dbschema)
+        getTableSchema: getFindTable
     })
 }
 
