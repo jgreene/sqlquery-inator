@@ -14,6 +14,40 @@ export type SqlQuery = {
     parameters: SqlParameters
 }
 
+function swapAliasMap(map: { [key: string]: string }): { [key: string]: string } {
+    const result: { [key: string]: string } = {}
+
+    const keys = Object.keys(map);
+    keys.forEach(key => {
+        const value = map[key];
+        result[value] = key;
+    });
+    return result;
+}
+
+export function hydrateResults(query: SqlQuery, results: any[]): any[] {
+    const aliasKeys = Object.keys(query.column_aliases)
+    if(aliasKeys.length < 1){
+        return results;
+    }
+
+    const aliases = swapAliasMap(query.column_aliases)
+
+    return results.map(r => {
+        const result = { ...r }
+
+        Object.keys(result).forEach(key => {
+            const alias = aliases[key]
+            if(alias !== undefined){
+                const currentValue = result[key]
+                delete result[key]
+                result[alias] = currentValue;
+            }
+        })
+        return result;
+    });
+}
+
 export function addParameter(parameters: SqlParameters, parameter: SqlParameter): SqlParameter {
     const current = parameters[parameter.name];
     if(current === undefined){
