@@ -1,6 +1,6 @@
 import * as moment from 'moment'
 
-const validScalarFunctionNames = [
+const validFunctionNames = [
     'ISNULL',
     'COUNT',
     'MAX',
@@ -10,11 +10,11 @@ const validScalarFunctionNames = [
 ]
 
 export function registerFunction(name: string) {
-    validScalarFunctionNames.push(name);
+    validFunctionNames.push(name);
 }
 
 export function isValidFunction(name: string): boolean {
-    return validScalarFunctionNames.indexOf(name) !== -1;
+    return validFunctionNames.indexOf(name) !== -1;
 }
 
 export type ColumnType = boolean | number | string | moment.Moment | null
