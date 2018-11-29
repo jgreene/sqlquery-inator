@@ -2,11 +2,20 @@ import * as moment from 'moment'
 
 const validFunctionNames = [
     'ISNULL',
+    'CONCAT',
     'COUNT',
     'MAX',
     'MIN',
     'SUM',
-    'AVG'
+    'AVG',
+    'PATINDEX',
+]
+
+const operators = [
+    '+',
+    '-',
+    '/',
+    '*'
 ]
 
 export function registerFunction(name: string) {
@@ -15,6 +24,10 @@ export function registerFunction(name: string) {
 
 export function isValidFunction(name: string): boolean {
     return validFunctionNames.indexOf(name) !== -1;
+}
+
+export function isValidOperator(name: string): boolean {
+    return operators.indexOf(name) !== -1;
 }
 
 export type ColumnType = boolean | number | string | moment.Moment | null
@@ -169,6 +182,7 @@ export type PredicateOperator = | "equals"
     | "lessThanOrEquals" 
     | "isNull" 
     | "isNotNull"
+    | "like"
 
 export const PredicateOperator = {
     equals: "equals" as PredicateOperator,
@@ -178,7 +192,8 @@ export const PredicateOperator = {
     greaterThanOrEquals: "greaterThanOrEquals" as PredicateOperator,
     lessThanOrEquals: "lessThanOrEquals"  as PredicateOperator,
     isNull: "isNull" as PredicateOperator,
-    isNotNull: "isNotNull" as PredicateOperator
+    isNotNull: "isNotNull" as PredicateOperator,
+    like: "like" as PredicateOperator
 }
 
 export function isValidPredicateOperator(input: any): input is PredicateOperator {
@@ -244,7 +259,7 @@ export const isStarExpr = is<StarExpr>('StarExpr')
 
 type SelectOptions = {
     projection: ProjectionExpr
-    from?: SelectStatementExpr | JoinExpr | FromExpr | FromSelectExpr | undefined, 
+    from?: SelectStatementExpr | JoinExpr | FromExpr | FromSelectExpr | UnionExpr | undefined, 
     where?: Expr | undefined, 
     alias?: string | undefined,
     orderBy?: OrderByExpr | undefined,
@@ -258,7 +273,7 @@ export class SelectStatementExpr extends Expr {
     readonly _tag = 'SelectStatementExpr'
 
     public readonly projection: ProjectionExpr
-    public readonly from?: SelectStatementExpr | JoinExpr | FromExpr | FromSelectExpr | undefined
+    public readonly from?: SelectStatementExpr | JoinExpr | FromExpr | FromSelectExpr | UnionExpr | undefined
     public readonly where?: WhereExpr | undefined
     public readonly alias?: string | undefined
     public readonly orderBy?: OrderByExpr | undefined
@@ -308,6 +323,16 @@ export class ScalarFunctionExpr extends Expr {
 
 export const isScalarFunctionExpr = is<ScalarFunctionExpr>('ScalarFunctionExpr')
 
+export class OperatorExpr extends Expr {
+    readonly _tag = 'OperatorExpr'
+
+    constructor(public left: Expr, public name: string, public right: Expr) {
+        super()
+    }
+}
+
+export const isOperatorExpr = is<OperatorExpr>('OperatorExpr')
+
 export class AggregateFunctionExpr extends Expr {
     readonly _tag = 'AggregateFunctionExpr'
 
@@ -347,3 +372,16 @@ export class EmptyStringExpr extends Expr {
 }
 
 export const isEmptyStringExpr = is<EmptyStringExpr>('EmptyStringExpr')
+
+export class UnionExpr extends Expr {
+    readonly _tag = 'UnionExpr'
+
+    constructor(
+        public select1: SelectStatementExpr | UnionExpr, 
+        public select2: SelectStatementExpr, 
+        public all: boolean) {
+        super()
+    }
+}
+
+export const isUnionExpr = is<UnionExpr>('UnionExpr')

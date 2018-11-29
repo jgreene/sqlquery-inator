@@ -20,4 +20,20 @@ describe('sqlquery tests', () => {
         expect(result.Test).eq('Heinz')
         expect(result).does.not.have.property('ca1')
     })
+
+    it('Hydrating results does not change column order', async () => {
+        const query = from(Person, 'p').select(p => ({ FirstName: p.FirstName, Test: p.FirstName, LastName: p.LastName }))
+        const safe = toSafeQuery(query.expr)
+        const originalResults = [{ 'FirstName': 'Heinz', ca1: 'Heinz', 'LastName': 'Doofenschmirtz' }]
+        const hydrated = hydrateResults(safe, originalResults)
+        
+        expect(hydrated.length).eq(1)
+        const result = hydrated[0]
+        expect(result).has.property('Test')
+        expect(result.Test).eq('Heinz')
+        expect(result).does.not.have.property('ca1')
+        const keys = Object.keys(result);
+        expect(keys.length).eq(3)
+        expect(keys[1]).eq('Test')
+    })
 })

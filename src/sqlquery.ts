@@ -34,14 +34,15 @@ export function hydrateResults(query: SqlQuery, results: any[]): any[] {
     const aliases = swapAliasMap(query.column_aliases)
 
     return results.map(r => {
-        const result = { ...r }
+        const result: any = {}
 
-        Object.keys(result).forEach(key => {
+        Object.keys(r).forEach(key => {
             const alias = aliases[key]
-            if(alias !== undefined){
-                const currentValue = result[key]
-                delete result[key]
-                result[alias] = currentValue;
+            if(alias === undefined){
+                result[key] = r[key]
+            }
+            else {
+                result[alias] = r[key]
             }
         })
         return result;

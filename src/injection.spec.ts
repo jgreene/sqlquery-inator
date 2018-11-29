@@ -26,6 +26,7 @@ addTag('ProjectionExpr')
 addTag('StarExpr')
 addTag('NullExpr')
 addTag('EmptyStringExpr')
+addTag('UnionExpr')
 
 
 function GetUntestedTags() {
@@ -122,6 +123,10 @@ describe('sql injection tests', () => {
 
     it('ValueExpr is not injectable', async () => {
         test(new ut.ValueExpr(INJECTION_CONSTANT))
+    })
+
+    it('OperatorExpr is not injectable', async () => {
+        test(new ut.OperatorExpr(new ut.FieldExpr('Test', 't'), INJECTION_CONSTANT, new ut.FieldExpr('Test2', 't')))
     })
 
     it('All tags are tested for sql injection vulnerabilities', async () => {

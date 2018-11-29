@@ -4,7 +4,7 @@ import 'mocha';
 import * as t from 'io-ts'
 import * as tdc from 'io-ts-derive-class'
 
-import { registerTable, from, ISNULL, val, ROW_NUMBER, COUNT, AVG, MAX, MIN, SUM } from './index';
+import { registerTable, from, ISNULL, val, ROW_NUMBER, PATINDEX, COUNT, AVG, MAX, MIN, SUM, UNION } from './index';
 import * as ut from './untyped_ast'
 
 import { toQuery } from './mssql'
@@ -1423,6 +1423,160 @@ where (((p.[FirstName] = @v AND p.[LastName] = @v1) OR (p.[LastName] = @v2 AND p
     ta2.[LastName]
 from [dbo].[Person] as ta2
 where (((ta2.[FirstName] = @v AND ta2.[LastName] = @v1) OR (ta2.[LastName] = @v2 AND ta2.[FirstName] = @v3)) OR ta2.[ID] = @v4)`)
+    });
+
+    it('Can use like predicate', async () => {
+        const query = from(Person, 'p').selectAll().where(p => 
+            p.FirstName.like('%Heinz%')
+        )
+
+        const unsafe = toUnsafeQuery(query.expr);
+        const safe = toSafeQuery(query.expr);
+
+        compare(unsafe.sql, 
+`select
+    p.[ID],
+    p.[FirstName],
+    p.[LastName]
+from [dbo].[Person] as p
+where p.[FirstName] like @v`)
+
+        compare(safe.sql, 
+`select
+    ta2.[ID],
+    ta2.[FirstName],
+    ta2.[LastName]
+from [dbo].[Person] as ta2
+where ta2.[FirstName] like @v`)
+    });
+
+    it('Can use PATINDEX with ROW_NUMBER', async () => {
+        const query = from(Person, 'p').select(p => { 
+            return {
+                ...p,
+                RowNumber: ROW_NUMBER([PATINDEX('%Test%', p.FirstName).desc])
+            }
+        })
+
+        const unsafe = toUnsafeQuery(query.expr);
+        const safe = toSafeQuery(query.expr);
+
+        compare(unsafe.sql, 
+`select
+    p.[ID],
+    p.[FirstName],
+    p.[LastName],
+    (ROW_NUMBER() OVER (ORDER BY PATINDEX(@v, p.[FirstName]) DESC)) as 'RowNumber'
+from [dbo].[Person] as p`)
+
+        compare(safe.sql, 
+`select
+    ta2.[ID],
+    ta2.[FirstName],
+    ta2.[LastName],
+    (ROW_NUMBER() OVER (ORDER BY PATINDEX(@v, ta2.[FirstName]) DESC)) as 'ca1'
+from [dbo].[Person] as ta2`)
+    });
+
+    it('Can use column addition', async () => {
+        const query = from(Person, 'p').select(p => { 
+            return {
+                ...p,
+                FirstAndLast: p.FirstName.add(' ').add(p.LastName)
+            }
+        })
+
+        const unsafe = toUnsafeQuery(query.expr);
+        const safe = toSafeQuery(query.expr);
+
+        compare(unsafe.sql, 
+`select
+    p.[ID],
+    p.[FirstName],
+    p.[LastName],
+    (p.[FirstName] + @v + p.[LastName]) as 'FirstAndLast'
+from [dbo].[Person] as p`)
+
+        compare(safe.sql, 
+`select
+    ta2.[ID],
+    ta2.[FirstName],
+    ta2.[LastName],
+    (ta2.[FirstName] + @v + ta2.[LastName]) as 'ca1'
+from [dbo].[Person] as ta2`)
+    });
+
+    it('Can union multiple queries', async () => {
+        const query1 = from(Person, 'p').where(p => p.FirstName.equals('Heinz')).select(p => { 
+            return {
+                ID: p.ID
+            }
+        })
+
+        const query2 = from(Person, 'p').where(p => p.LastName.equals('Doofenschmirtz')).select(p => { 
+            return {
+                ID: p.ID
+            }
+        })
+
+        const query = UNION(query1, query2).select()
+
+        const unsafe = toUnsafeQuery(query.expr);
+        const safe = toSafeQuery(query.expr);
+
+        compare(unsafe.sql, 
+`select
+    [ID]
+from (
+        select
+            [ID]
+        from (
+            select
+                p.[ID],
+                p.[FirstName],
+                p.[LastName]
+            from [dbo].[Person] as p
+            where p.[FirstName] = @v
+        ) as ta1
+    union
+        select
+            [ID]
+        from (
+            select
+                p.[ID],
+                p.[FirstName],
+                p.[LastName]
+            from [dbo].[Person] as p
+            where p.[LastName] = @v1
+        ) as ta1
+) as ta1`)
+
+        compare(safe.sql, 
+`select
+    [ID]
+from (
+        select
+            [ID]
+        from (
+            select
+                ta2.[ID],
+                ta2.[FirstName],
+                ta2.[LastName]
+            from [dbo].[Person] as ta2
+            where ta2.[FirstName] = @v
+        ) as ta1
+    union
+        select
+            [ID]
+        from (
+            select
+                ta2.[ID],
+                ta2.[FirstName],
+                ta2.[LastName]
+            from [dbo].[Person] as ta2
+            where ta2.[LastName] = @v1
+        ) as ta1
+) as ta1`)
     });
 });
 

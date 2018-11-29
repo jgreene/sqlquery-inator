@@ -40,6 +40,10 @@ function predicateOperatorToSql(comparison: ut.PredicateOperator): string {
         return 'is not null'
     }
 
+    if(comparison === ut.PredicateOperator.like) {
+        return 'like'
+    }
+
     throw new Error(`Could not map ${comparison} to sql operator!`);
 }
 
@@ -166,7 +170,7 @@ function GetSelectSqlInternal(expr: ut.Expr, ctx: Context): string {
     const top = expr.take ? ` top (${parseInt(expr.take.take.toString())})` : '';
     const distinct = expr.distinct === true ? ` distinct` : '';
     const alias = expr.alias && ctx.getTableSchema ? mapTableAlias(ctx, expr.alias) : expr.alias || insertAndGetTableAlias(ctx);
-    const isFromChildSelect = ut.isSelectStatementExpr(expr.from);
+    const isFromChildSelect = ut.isSelectStatementExpr(expr.from) || ut.isUnionExpr(expr.from);
     const from = expr.from ? toSql(expr.from, ctx) : '';
     const projections = GetProjectionSql(expr.projection, increaseIndent(ctx), expr.alias);
     const where = expr.where ? '\n' + toSql(expr.where, ctx) : '';
@@ -205,6 +209,15 @@ function GetOrderBySql(expr: ut.Expr | undefined, ctx: Context): string {
 export function toSql(expr: ut.Expr | undefined, ctx: Context): string {
     if(expr === undefined){
         return ''
+    }
+
+    if(ut.isUnionExpr(expr)){
+        const newCtx = increaseIndent(ctx);
+        const select1 = indent(toSql(expr.select1, ctx), newCtx);
+        const union = expr.all ? 'union all' : 'union'
+        const select2 = indent(toSql(expr.select2, ctx), newCtx);
+
+        return `${select1}\n${union}\n${select2}`
     }
 
     if(ut.isFromSelectExpr(expr)){
@@ -300,11 +313,22 @@ export function toSql(expr: ut.Expr | undefined, ctx: Context): string {
 
     if(ut.isScalarFunctionExpr(expr)) {
         if(ctx.getTableSchema && !ut.isValidFunction(expr.name)){
-            throw new Error('Invalid scalar function')
+            throw new Error('Invalid scalar function: ' + expr.name)
         }
         
         const args = expr.args.map(a => toSql(a, ctx)).join(', ')
         return `${expr.name}(${args})`
+    }
+
+    if(ut.isOperatorExpr(expr)){
+        if(ctx.getTableSchema && !ut.isValidOperator(expr.name)){
+            throw new Error('Invalid operator: ' + expr.name)
+        }
+
+        const left = toSql(expr.left, ctx)
+        const operator = expr.name
+        const right = toSql(expr.right, ctx)
+        return `${left} ${operator} ${right}`
     }
 
     if(ut.isValueExpr(expr)) {

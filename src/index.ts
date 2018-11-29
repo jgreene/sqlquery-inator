@@ -60,11 +60,13 @@ const operators = {
     lessThan: createComparisonOperator(ut.PredicateOperator.lessThan),
     greaterThanOrEquals: createComparisonOperator(ut.PredicateOperator.greaterThanOrEquals),
     lessThanOrEquals: createComparisonOperator(ut.PredicateOperator.lessThanOrEquals),
+    like: createComparisonOperator(ut.PredicateOperator.like),
 }
 
 abstract class TypedExpr<T> {
     constructor(public expr: ut.Expr) {}
 }
+
 
 export class ColumnExpr<C extends ColumnType> extends TypedExpr<C> {
     constructor(public expr: ut.Expr) {
@@ -95,8 +97,18 @@ export class ColumnExpr<C extends ColumnType> extends TypedExpr<C> {
         return operators.lessThanOrEquals<T, C, C2>(this, c2);
     }
 
+    like<T, C2 extends ColumnType>(c2: C2 | ColumnExpr<C2>): PredicateExpr<T> {
+        return operators.like<T, C, C2>(this, c2);
+    }
+
     as<TName extends string>(name: TName): AsExpr<C, TName> {
         return as<C, TName>(this, name)
+    }
+
+    add<C2 extends ColumnType>(c2: C2 | ColumnExpr<C2>): ColumnExpr<C> {
+        const rightExpr = c2 instanceof ColumnExpr ? c2.expr : val(c2).expr;
+        var op = new ut.OperatorExpr(this.expr, '+', rightExpr);
+        return  new ColumnExpr<C>(op);
     }
 
     get asc(): OrderColumnExpr<C> {
@@ -199,6 +211,11 @@ export function ROW_NUMBER<T>(ordering: OrderColumnExpr<any>[]): WindowFunctionC
     const expr = getOrderByExpr(ordering);
 
     return INTERNAL_ROW_NUMBER(expr);
+}
+
+export function PATINDEX<T extends string>(value: T | ColumnExpr<T>, columnExpr: ColumnExpr<T>): ColumnExpr<T> {
+    const expr = value instanceof ColumnExpr ? value.expr : val(value).expr;
+    return new ColumnExpr(new ut.ScalarFunctionExpr('PATINDEX', [expr, columnExpr.expr]))
 }
 
 function GetColumnProjectionsFromTable<T>(table: Table<T>, alias?: string | undefined): Row<T> {
@@ -416,6 +433,10 @@ export class SelectExpr<T> extends TypedExpr<T> {
         const column = func(newRow);
         return this.select(r => { return { count: COUNT(column)}});
     }
+
+    // search<ColumnsToSearch>(searchText: string, func: (t: Row<T>) => Row<ColumnsToSearch>): SelectExpr<T> {
+
+    // }
 }
 
 function toAggregateRow<T>(row: Row<T>): AggregateRow<T> {
@@ -969,18 +990,28 @@ export function from<T, Talias extends string >(source: SelectExpr<T> | Table<T>
     return new FromExpr<T, Talias>(source, alias, new ut.FromExpr(tableName, alias));
 }
 
-// export class DynamicFromExpr<Talias extends string> extends TypedExpr<any> {
-//     constructor(expr: ut.Expr){
-//         super(expr);
-//     }
+export class UnionExpr<T> extends TypedExpr<T> {
+    constructor(public row: Row<T>, public expr: ut.UnionExpr) {
+        super(expr)
+    }
 
-//     select<Projection>(func: () => Row<Projection>): SelectExpr<Projection> {
+    union(select: SelectExpr<T>, all: boolean = false): UnionExpr<T> {
+        const union = new ut.UnionExpr(this.expr, select.expr, all)
+        return new UnionExpr<T>(this.row, union)
+    }
 
-//     }
-// }
+    select(): SelectExpr<T> {
+        const projection = GetProjectionExprFromRow(this.row);
+        const select = new ut.SelectStatementExpr({
+            projection: projection,
+            from: this.expr
+        })
 
-// export function dynamicFrom<Talias extends string>(tableName: string, alias: Talias): DynamicFromExpr<Talias> {
+        return new SelectExpr<T>(this.row, select);
+    }
+}
 
-//     const from = new ut.FromExpr(tableName, alias);
-//     return new DynamicFromExpr<Talias>(from);
-// }
+export function UNION<T>(select1: SelectExpr<T> | UnionExpr<T>, select2: SelectExpr<T>, all: boolean = false): UnionExpr<T> {
+    const union = new ut.UnionExpr(select1.expr, select2.expr, all)
+    return new UnionExpr<T>(select1.row, union)
+}
