@@ -1519,7 +1519,13 @@ from [dbo].[Person] as ta2`)
             }
         })
 
-        const query = UNION(query1, query2).select()
+        const query3 = from(Person, 'p').where(p => p.ID.equals(1)).select(p => { 
+            return {
+                ID: p.ID
+            }
+        })
+
+        const query = UNION(query1, query2).union(query3).select()
 
         const unsafe = toUnsafeQuery(query.expr);
         const safe = toSafeQuery(query.expr);
@@ -1549,6 +1555,17 @@ from (
             from [dbo].[Person] as p
             where p.[LastName] = @v1
         ) as ta1
+    union
+        select
+            [ID]
+        from (
+            select
+                p.[ID],
+                p.[FirstName],
+                p.[LastName]
+            from [dbo].[Person] as p
+            where p.[ID] = @v2
+        ) as ta1
 ) as ta1`)
 
         compare(safe.sql, 
@@ -1575,6 +1592,17 @@ from (
                 ta2.[LastName]
             from [dbo].[Person] as ta2
             where ta2.[LastName] = @v1
+        ) as ta1
+    union
+        select
+            [ID]
+        from (
+            select
+                ta2.[ID],
+                ta2.[FirstName],
+                ta2.[LastName]
+            from [dbo].[Person] as ta2
+            where ta2.[ID] = @v2
         ) as ta1
 ) as ta1`)
     });

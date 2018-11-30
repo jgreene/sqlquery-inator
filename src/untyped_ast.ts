@@ -15,7 +15,8 @@ const operators = [
     '+',
     '-',
     '/',
-    '*'
+    '*',
+    '%'
 ]
 
 export function registerFunction(name: string) {

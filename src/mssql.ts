@@ -213,7 +213,8 @@ export function toSql(expr: ut.Expr | undefined, ctx: Context): string {
 
     if(ut.isUnionExpr(expr)){
         const newCtx = increaseIndent(ctx);
-        const select1 = indent(toSql(expr.select1, ctx), newCtx);
+
+        const select1 = ut.isUnionExpr(expr.select1) ? toSql(expr.select1, ctx) : indent(toSql(expr.select1, ctx), newCtx);
         const union = expr.all ? 'union all' : 'union'
         const select2 = indent(toSql(expr.select2, ctx), newCtx);
 

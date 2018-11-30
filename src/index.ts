@@ -1,6 +1,7 @@
 import * as ut from './untyped_ast'
 import * as t from 'io-ts'
 import * as tdc from 'io-ts-derive-class'
+import * as moment from 'moment'
 
 export type ColumnType = ut.ColumnType
 
@@ -18,11 +19,6 @@ export type ToOuterRow<T> = {
 export type AggregateRow<T> = {
     [P in keyof T]: T[P] extends AggregateColumnExpr<infer U> ? T[P] : never
 }
-
-type FromRow<T> = {
-    [P in keyof T]: T[P] extends ColumnExpr<infer U> ? U : never
-}
-
 
 const tableNameMap: any = {}
 
@@ -67,9 +63,8 @@ abstract class TypedExpr<T> {
     constructor(public expr: ut.Expr) {}
 }
 
-
 export class ColumnExpr<C extends ColumnType> extends TypedExpr<C> {
-    constructor(public expr: ut.Expr) {
+    constructor(public type: t.Type<any>, public expr: ut.Expr) {
         super(expr)
     }
 
@@ -105,11 +100,25 @@ export class ColumnExpr<C extends ColumnType> extends TypedExpr<C> {
         return as<C, TName>(this, name)
     }
 
-    add<C2 extends ColumnType>(c2: C2 | ColumnExpr<C2>): ColumnExpr<C> {
-        const rightExpr = c2 instanceof ColumnExpr ? c2.expr : val(c2).expr;
-        var op = new ut.OperatorExpr(this.expr, '+', rightExpr);
-        return  new ColumnExpr<C>(op);
+    private createOperator<C2 extends ColumnType>(operator: string) {
+        if(!ut.isValidOperator(operator)){
+            throw new Error('Unsupported operator: ' + operator);
+        }
+
+        const self = this;
+        return function(c2: C2 | ColumnExpr<C2>): ColumnExpr<C> {
+            const column = c2 instanceof ColumnExpr ? c2 : val(c2);
+            const rightExpr = column.expr
+            var op = new ut.OperatorExpr(self.expr, operator, rightExpr);
+            return  new ColumnExpr<C>(column.type, op);
+        }
     }
+
+    add = this.createOperator<string | number | null>('+')
+    subtract = this.createOperator<number>('-')
+    divide = this.createOperator<number>('/')
+    multiply = this.createOperator<number>('*')
+    modulo = this.createOperator<number>('%')
 
     get asc(): OrderColumnExpr<C> {
         return new OrderColumnExpr<C>(new ut.OrderByExpr(this.expr, 'ASC'))
@@ -123,13 +132,13 @@ export class ColumnExpr<C extends ColumnType> extends TypedExpr<C> {
 export class AggregateColumnExpr<C extends ColumnType> extends ColumnExpr<C> {
     /* forcing the type checker to not assume AggregateColumnExpr and ColumnExpr are equivalent */
     public isAggregateColumn: boolean = true
-    constructor(expr: ut.Expr) {
-        super(expr)
+    constructor(type: t.Type<any>, expr: ut.Expr) {
+        super(type, expr)
     }
 }
 
 function toAggregateColumn<C extends ColumnType>(column: ColumnExpr<C>): AggregateColumnExpr<C> {
-    return new AggregateColumnExpr<C>(column.expr);
+    return new AggregateColumnExpr<C>(column.type, column.expr);
 }
 
 export class OrderColumnExpr<C extends ColumnType> extends TypedExpr<C> {
@@ -139,14 +148,14 @@ export class OrderColumnExpr<C extends ColumnType> extends TypedExpr<C> {
 }
 
 export class WindowFunctionColumnExpr<C extends ColumnType> extends ColumnExpr<C> {
-    constructor(expr: ut.Expr){
-        super(expr)
+    constructor(public type: t.Type<any>, expr: ut.Expr){
+        super(type, expr)
     }
 }
 
 export class AsExpr<T extends ColumnType, name extends string> extends ColumnExpr<T> {
     constructor(public column: ColumnExpr<T>, public name: name) {
-        super(new ut.AsExpr(column.expr, name))
+        super(column.type, new ut.AsExpr(column.expr, name))
     }
 }
 
@@ -155,32 +164,57 @@ export function as<C extends ColumnType, name extends string>(expr: ColumnExpr<C
 }
 
 export class ValueExpr<T extends ColumnType> extends ColumnExpr<T> {
-    constructor(public expr: ut.Expr) {
-        super(expr)
+    constructor(public type: t.Type<any>, public expr: ut.Expr) {
+        super(type, expr)
     }
 }
 
+function GetTypeFromValue<T extends ColumnType>(value: T): t.Type<any> {
+    if(typeof value === 'string'){
+        return t.string
+    }
+
+    if(typeof value === 'number'){
+        return t.number
+    }
+
+    if(typeof value === 'boolean'){
+        return t.boolean
+    }
+
+    if(moment.isMoment(value)){
+        return tdc.DateTime
+    }
+
+    if(value === null){
+        return t.null
+    }
+
+    throw new Error('Could not get type for value: ' + JSON.stringify(value, null, 2));
+}
+
 export function val<T extends ColumnType>(value: T): ValueExpr<T> {
+    const type = GetTypeFromValue(value);
     const expr = value === '' ? new ut.EmptyStringExpr() : value === null ? new ut.NullExpr : new ut.ValueExpr(value)
 
-    return new ValueExpr(expr);
+    return new ValueExpr(type, expr);
 }
 
 export function ISNULL<C extends ColumnType>(expr: TypedExpr<C | null>, value: ValueExpr<Exclude<C, null>>): ColumnExpr<Exclude<C, null>> {
-    return new ColumnExpr(new ut.ScalarFunctionExpr('ISNULL', [expr.expr, value.expr]))
+    return new ColumnExpr(value.type, new ut.ScalarFunctionExpr('ISNULL', [expr.expr, value.expr]))
 }
 
 export function COUNT<C extends ColumnType>(column?: ColumnExpr<C> | undefined): AggregateColumnExpr<number> {
     if(column === undefined){
-        return new AggregateColumnExpr(new ut.AggregateFunctionExpr('COUNT', false, new ut.StarExpr));
+        return new AggregateColumnExpr(t.number, new ut.AggregateFunctionExpr('COUNT', false, new ut.StarExpr));
     }
     
-    return new AggregateColumnExpr(new ut.AggregateFunctionExpr('COUNT', true, column.expr));
+    return new AggregateColumnExpr(t.number, new ut.AggregateFunctionExpr('COUNT', true, column.expr));
 };
 
 function createAggregateFunction<C extends ColumnType>(name: string){
     return function(column: ColumnExpr<C>, distinct: boolean = false): AggregateColumnExpr<number> {
-        return new AggregateColumnExpr(new ut.AggregateFunctionExpr(name, distinct, column.expr));
+        return new AggregateColumnExpr(t.number, new ut.AggregateFunctionExpr(name, distinct, column.expr));
     };
 }
 
@@ -204,7 +238,7 @@ function getOrderByExpr<T>(ordering: OrderColumnExpr<any>[]): ut.OrderByExpr {
 }
 
 function INTERNAL_ROW_NUMBER<T>(ordering: ut.OrderByExpr): WindowFunctionColumnExpr<number> {
-    return new WindowFunctionColumnExpr<number>(new ut.RowNumberExpr(ordering));
+    return new WindowFunctionColumnExpr<number>(t.number, new ut.RowNumberExpr(ordering));
 }
 
 export function ROW_NUMBER<T>(ordering: OrderColumnExpr<any>[]): WindowFunctionColumnExpr<number> {
@@ -214,8 +248,8 @@ export function ROW_NUMBER<T>(ordering: OrderColumnExpr<any>[]): WindowFunctionC
 }
 
 export function PATINDEX<T extends string>(value: T | ColumnExpr<T>, columnExpr: ColumnExpr<T>): ColumnExpr<T> {
-    const expr = value instanceof ColumnExpr ? value.expr : val(value).expr;
-    return new ColumnExpr(new ut.ScalarFunctionExpr('PATINDEX', [expr, columnExpr.expr]))
+    const column = value instanceof ColumnExpr ? value : val(value);
+    return new ColumnExpr(t.number, new ut.ScalarFunctionExpr('PATINDEX', [column.expr, columnExpr.expr]))
 }
 
 function GetColumnProjectionsFromTable<T>(table: Table<T>, alias?: string | undefined): Row<T> {
@@ -230,7 +264,8 @@ function GetColumnProjectionsFromTable<T>(table: Table<T>, alias?: string | unde
     }
     const projection: any = {};
     Object.keys(type.props).forEach(key => {
-        projection[key] = new ColumnExpr<any>(new ut.ColumnExpr(tableName, key, alias));
+        const propType = type.props[key];
+        projection[key] = new ColumnExpr<any>(propType, new ut.ColumnExpr(tableName, key, alias));
     })
 
     return projection;
@@ -239,7 +274,8 @@ function GetColumnProjectionsFromTable<T>(table: Table<T>, alias?: string | unde
 function GetColumnProjectionsFromRow<T>(row: Row<T>, alias?: string | undefined): Row<T> {
     const projection: any = {}
     for(let key in row){
-        projection[key] = new ColumnExpr<any>(new ut.FieldExpr(key, alias));
+        const field = row[key];
+        projection[key] = new ColumnExpr<any>(field.type, new ut.FieldExpr(key, alias));
     }
 
     return projection;
@@ -434,9 +470,15 @@ export class SelectExpr<T> extends TypedExpr<T> {
         return this.select(r => { return { count: COUNT(column)}});
     }
 
-    // search<ColumnsToSearch>(searchText: string, func: (t: Row<T>) => Row<ColumnsToSearch>): SelectExpr<T> {
-
-    // }
+    search<ColumnsToSearch>(searchText: string, func: (t: Row<T>) => Row<ColumnsToSearch>): OrderByExpr<T> {
+        const newRow = GetColumnProjectionsFromRow(this.row);
+        const row = func(newRow);
+        
+        const int = parseInt(searchText, 10);
+        const isInt = isNaN(int) === false;
+        
+        throw ''
+    }
 }
 
 function toAggregateRow<T>(row: Row<T>): AggregateRow<T> {
@@ -490,7 +532,7 @@ export class OrderByExpr<T> extends SelectExpr<T> {
             orderBy: undefined
         })
 
-        const rowNumberColumnExpr = new ColumnExpr<number>(new ut.FieldExpr(rowNumberAlias));
+        const rowNumberColumnExpr = new ColumnExpr<number>(t.number, new ut.FieldExpr(rowNumberAlias));
 
         const predicate = operators.greaterThan(rowNumberColumnExpr, startIndex)
                             .and(operators.lessThanOrEquals(rowNumberColumnExpr, endIndex));
