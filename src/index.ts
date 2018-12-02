@@ -1,7 +1,7 @@
 import * as ut from './untyped_ast'
 import * as t from 'io-ts'
 import * as tdc from 'io-ts-derive-class'
-import * as moment from 'moment'
+import { GetTypeFromValue, getTypesFromTag } from './typehelper'
 
 export type ColumnType = ut.ColumnType
 
@@ -169,29 +169,7 @@ export class ValueExpr<T extends ColumnType> extends ColumnExpr<T> {
     }
 }
 
-function GetTypeFromValue<T extends ColumnType>(value: T): t.Type<any> {
-    if(typeof value === 'string'){
-        return t.string
-    }
 
-    if(typeof value === 'number'){
-        return t.number
-    }
-
-    if(typeof value === 'boolean'){
-        return t.boolean
-    }
-
-    if(moment.isMoment(value)){
-        return tdc.DateTime
-    }
-
-    if(value === null){
-        return t.null
-    }
-
-    throw new Error('Could not get type for value: ' + JSON.stringify(value, null, 2));
-}
 
 export function val<T extends ColumnType>(value: T): ValueExpr<T> {
     const type = GetTypeFromValue(value);
@@ -470,15 +448,52 @@ export class SelectExpr<T> extends TypedExpr<T> {
         return this.select(r => { return { count: COUNT(column)}});
     }
 
-    search<ColumnsToSearch>(searchText: string, func: (t: Row<T>) => Row<ColumnsToSearch>): OrderByExpr<T> {
+    search<ColumnsToSearch>(searchText: string, func: (t: Row<T>) => Row<ColumnsToSearch>, searchWildcard: string = '*'): SelectExpr<T> {
         const newRow = GetColumnProjectionsFromRow(this.row);
         const row = func(newRow);
         
-        const int = parseInt(searchText, 10);
-        const isInt = isNaN(int) === false;
+        const num = parseInt(searchText, 10) || parseFloat(searchText);
+        const isNum = isNaN(num) === false;
+
+        if(isNum){
+            const numberRow = GetColumnsOfType(row, 'number')
+            
+            const query = this.where((r: any) => {
+                var pred: any = undefined;
+                for(let n in numberRow){
+                    const column = numberRow[n];
+                    if(pred === undefined){
+                        pred = column.equals(num)
+                    }
+                    else {
+                        pred.or(column.equals(num))
+                    }
+                }
+
+                return pred;
+            })
+
+            return query;
+        }
+
+        var union: UnionExpr<any> | undefined = undefined
+
+        
         
         throw ''
     }
+}
+
+export function GetColumnsOfType<T>(row: Row<T>, acceptedType: 'string' | 'number'): Row<T> {
+    var result: any = {}
+    for(let k in row){
+        const column = row[k]
+        const types = getTypesFromTag(column.type)
+        if(types.indexOf(acceptedType) !== -1){
+            result[k] = column
+        }
+    }
+    return result;
 }
 
 function toAggregateRow<T>(row: Row<T>): AggregateRow<T> {
