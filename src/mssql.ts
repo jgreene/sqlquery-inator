@@ -44,6 +44,10 @@ function predicateOperatorToSql(comparison: ut.PredicateOperator): string {
         return 'like'
     }
 
+    if(comparison === ut.PredicateOperator.in) {
+        return 'in'
+    }
+
     throw new Error(`Could not map ${comparison} to sql operator!`);
 }
 
@@ -301,11 +305,23 @@ export function toSql(expr: ut.Expr | undefined, ctx: Context): string {
 
     if(ut.isPredicateExpr(expr)) {
         const left = toSql(expr.left, ctx);
-        const right = expr.right ? ' ' + toSql(expr.right, ctx) : '';
-        
         const operator = predicateOperatorToSql(expr.operator)
+        const isInClause = operator === 'in';
         
+        if(isInClause) {
+            const newCtx = increaseIndent(ctx)
+            const right = expr.right ? indent(toSql(expr.right, ctx), newCtx) : '';
+            return `${left} in (\n${right}\n)`;
+        }
+        
+        const right = expr.right ? ' ' + toSql(expr.right, ctx) : '';
         return `${left} ${operator}${right}`;
+    }
+
+    if(ut.isArrayExpr(expr)) {
+        const newCtx = increaseIndent(ctx)
+        const sql = expr.expressions.map(e => indent(toSql(e, ctx), newCtx)).join(',\n')
+        return `(\n${sql}\n)`
     }
 
     if(ut.isProjectionExpr(expr)) {

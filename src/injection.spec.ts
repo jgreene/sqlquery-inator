@@ -27,6 +27,7 @@ addTag('StarExpr')
 addTag('NullExpr')
 addTag('EmptyStringExpr')
 addTag('UnionExpr')
+addTag('ArrayExpr')
 
 
 function GetUntestedTags() {

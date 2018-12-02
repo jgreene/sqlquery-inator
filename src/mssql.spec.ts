@@ -1606,5 +1606,226 @@ from (
         ) as ta1
 ) as ta1`)
     });
+
+    it('Can use IN clause against array', async () => {
+        const query = from(Person, 'p').where(p => p.ID.in([1, 2, 3, 4]))
+
+        const unsafe = toUnsafeQuery(query.expr);
+        const safe = toSafeQuery(query.expr);
+
+        compare(unsafe.sql, 
+`select
+    p.[ID],
+    p.[FirstName],
+    p.[LastName]
+from [dbo].[Person] as p
+where p.[ID] in (
+    (
+        @v,
+        @v1,
+        @v2,
+        @v3
+    )
+)`)
+
+        compare(safe.sql, 
+`select
+    ta2.[ID],
+    ta2.[FirstName],
+    ta2.[LastName]
+from [dbo].[Person] as ta2
+where ta2.[ID] in (
+    (
+        @v,
+        @v1,
+        @v2,
+        @v3
+    )
+)
+`)
+    });
+
+    it('Can use IN clause against subquery', async () => {
+        const subquery = from(Person, 'p').where(p => p.FirstName.equals('Heinz')).select(p => ({ ID: p.ID }))
+        const query = from(Person, 'p').where(p => p.ID.in(subquery))
+
+        const unsafe = toUnsafeQuery(query.expr);
+        const safe = toSafeQuery(query.expr);
+
+        compare(unsafe.sql, 
+`select
+    p.[ID],
+    p.[FirstName],
+    p.[LastName]
+from [dbo].[Person] as p
+where p.[ID] in (
+    select
+        [ID]
+    from (
+        select
+            p.[ID],
+            p.[FirstName],
+            p.[LastName]
+        from [dbo].[Person] as p
+        where p.[FirstName] = @v
+    ) as ta1
+)`)
+
+        compare(safe.sql, 
+`select
+    ta2.[ID],
+    ta2.[FirstName],
+    ta2.[LastName]
+from [dbo].[Person] as ta2
+where ta2.[ID] in (
+    select
+        [ID]
+    from (
+        select
+            ta2.[ID],
+            ta2.[FirstName],
+            ta2.[LastName]
+        from [dbo].[Person] as ta2
+        where ta2.[FirstName] = @v
+    ) as ta1
+)`)
+    });
+
+    it('Can use generic search query', async () => {
+        const query = from(Person, 'p').selectAll().search('Heinz Doofenschmirtz', r => r, r => ({ ID: r.ID }), 1, 20)
+
+        const unsafe = toUnsafeQuery(query.expr);
+        const safe = toSafeQuery(query.expr);
+
+        compare(unsafe.sql, 
+`select
+    [ID],
+    [FirstName],
+    [LastName],
+    [_RowNumber]
+from (
+    select
+        (ROW_NUMBER() OVER (ORDER BY fq.[_RowNumber] ASC)) as '_RowNumber',
+        fq.[ID],
+        fq.[FirstName],
+        fq.[LastName],
+        fq.[_RowNumber]
+    from (
+        select
+            m.[ID],
+            m.[FirstName],
+            m.[LastName],
+            (ROW_NUMBER() OVER (ORDER BY PATINDEX(@v4, [FirstName] + @v5 + [LastName]) DESC)) as '_RowNumber'
+        from (
+            select
+                p.[ID],
+                p.[FirstName],
+                p.[LastName]
+            from [dbo].[Person] as p
+        ) as m
+        join (
+            select
+                p.[ID],
+                p.[FirstName],
+                p.[LastName]
+            from (
+                    select
+                        p.[ID],
+                        p.[FirstName],
+                        p.[LastName]
+                    from [dbo].[Person] as p
+                    where p.[FirstName] like @v
+                union
+                    select
+                        p.[ID],
+                        p.[FirstName],
+                        p.[LastName]
+                    from [dbo].[Person] as p
+                    where p.[LastName] like @v1
+                union
+                    select
+                        p.[ID],
+                        p.[FirstName],
+                        p.[LastName]
+                    from [dbo].[Person] as p
+                    where p.[FirstName] like @v2
+                union
+                    select
+                        p.[ID],
+                        p.[FirstName],
+                        p.[LastName]
+                    from [dbo].[Person] as p
+                    where p.[LastName] like @v3
+            ) as ta1
+        ) as m2 on m.[ID] = m2.[ID]
+    ) as fq
+) as ta1
+where ([_RowNumber] > @v6 AND [_RowNumber] <= @v7)`)
+
+        compare(safe.sql, 
+`select
+    [ID],
+    [FirstName],
+    [LastName],
+    [ca1]
+from (
+    select
+        (ROW_NUMBER() OVER (ORDER BY ta2.[ca1] ASC)) as 'ca1',
+        ta2.[ID],
+        ta2.[FirstName],
+        ta2.[LastName],
+        ta2.[ca1]
+    from (
+        select
+            ta2.[ID],
+            ta2.[FirstName],
+            ta2.[LastName],
+            (ROW_NUMBER() OVER (ORDER BY PATINDEX(@v4, [FirstName] + @v5 + [LastName]) DESC)) as 'ca1'
+        from (
+            select
+                ta2.[ID],
+                ta2.[FirstName],
+                ta2.[LastName]
+            from [dbo].[Person] as ta2
+        ) as ta2
+        join (
+            select
+                ta2.[ID],
+                ta2.[FirstName],
+                ta2.[LastName]
+            from (
+                    select
+                        ta2.[ID],
+                        ta2.[FirstName],
+                        ta2.[LastName]
+                    from [dbo].[Person] as ta2
+                    where ta2.[FirstName] like @v
+                union
+                    select
+                        ta2.[ID],
+                        ta2.[FirstName],
+                        ta2.[LastName]
+                    from [dbo].[Person] as ta2
+                    where ta2.[LastName] like @v1
+                union
+                    select
+                        ta2.[ID],
+                        ta2.[FirstName],
+                        ta2.[LastName]
+                    from [dbo].[Person] as ta2
+                    where ta2.[FirstName] like @v2
+                union
+                    select
+                        ta2.[ID],
+                        ta2.[FirstName],
+                        ta2.[LastName]
+                    from [dbo].[Person] as ta2
+                    where ta2.[LastName] like @v3
+            ) as ta1
+        ) as ta3 on ta2.[ID] = ta3.[ID]
+    ) as ta2
+) as ta1
+where ([ca1] > @v6 AND [ca1] <= @v7)`)
+    });
 });
 

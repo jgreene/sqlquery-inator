@@ -184,6 +184,7 @@ export type PredicateOperator = | "equals"
     | "isNull" 
     | "isNotNull"
     | "like"
+    | "in"
 
 export const PredicateOperator = {
     equals: "equals" as PredicateOperator,
@@ -194,7 +195,8 @@ export const PredicateOperator = {
     lessThanOrEquals: "lessThanOrEquals"  as PredicateOperator,
     isNull: "isNull" as PredicateOperator,
     isNotNull: "isNotNull" as PredicateOperator,
-    like: "like" as PredicateOperator
+    like: "like" as PredicateOperator,
+    in: "in" as PredicateOperator
 }
 
 export function isValidPredicateOperator(input: any): input is PredicateOperator {
@@ -386,3 +388,25 @@ export class UnionExpr extends Expr {
 }
 
 export const isUnionExpr = is<UnionExpr>('UnionExpr')
+
+export class ArrayExpr extends Expr {
+    readonly _tag = 'ArrayExpr'
+
+    constructor(
+        public expressions: Array<Expr>) {
+        super()
+    }
+}
+
+export const isArrayExpr = is<ArrayExpr>('ArrayExpr')
+
+// export class ExistsExpr extends Expr {
+//     readonly _tag = 'ExistsExpr'
+
+//     constructor(
+//         public select: SelectStatementExpr) {
+//         super()
+//     }
+// }
+
+// export const isExistsExpr = is<ExistsExpr>('ExistsExpr')

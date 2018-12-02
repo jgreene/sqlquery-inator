@@ -2,6 +2,7 @@ import * as ut from './untyped_ast'
 import * as t from 'io-ts'
 import * as tdc from 'io-ts-derive-class'
 import { GetTypeFromValue, getTypesFromTag } from './typehelper'
+import { join } from 'path';
 
 export type ColumnType = ut.ColumnType
 
@@ -56,7 +57,7 @@ const operators = {
     lessThan: createComparisonOperator(ut.PredicateOperator.lessThan),
     greaterThanOrEquals: createComparisonOperator(ut.PredicateOperator.greaterThanOrEquals),
     lessThanOrEquals: createComparisonOperator(ut.PredicateOperator.lessThanOrEquals),
-    like: createComparisonOperator(ut.PredicateOperator.like),
+    like: createComparisonOperator(ut.PredicateOperator.like)
 }
 
 abstract class TypedExpr<T> {
@@ -94,6 +95,22 @@ export class ColumnExpr<C extends ColumnType> extends TypedExpr<C> {
 
     like<T, C2 extends ColumnType>(c2: C2 | ColumnExpr<C2>): PredicateExpr<T> {
         return operators.like<T, C, C2>(this, c2);
+    }
+
+    in<T, C2 extends ColumnType>(c2: Array<C2> | SelectExpr<{ [P in keyof T]: C2 }>): PredicateExpr<T> {
+        if(c2 instanceof SelectExpr){
+            const pred = new ut.PredicateExpr(this.expr, 'in', c2.expr)
+            return new PredicateExpr<T>(pred);
+        }
+
+        if(Array.isArray(c2)){
+            const values = c2.map(c => val(c).expr)
+            const pred = new ut.PredicateExpr(this.expr, 'in', new ut.ArrayExpr(values))
+        
+            return new PredicateExpr<T>(pred);
+        }
+
+        throw new Error('Invalid argument to IN predicate');
     }
 
     as<TName extends string>(name: TName): AsExpr<C, TName> {
@@ -448,9 +465,17 @@ export class SelectExpr<T> extends TypedExpr<T> {
         return this.select(r => { return { count: COUNT(column)}});
     }
 
-    search<ColumnsToSearch>(searchText: string, func: (t: Row<T>) => Row<ColumnsToSearch>, searchWildcard: string = '*'): SelectExpr<T> {
+    search<ColumnsToSearch, IdColumns>(
+        searchText: string, 
+        columnsToSearch: (t: Row<T>) => Row<ColumnsToSearch>,
+        idColumns: (t: Row<T>) => Row<IdColumns>,
+        pageNumber: number,
+        itemsPerPage: number,
+        searchWildcard: string = '*'
+    ): OrderByExpr<T> {
         const newRow = GetColumnProjectionsFromRow(this.row);
-        const row = func(newRow);
+        const row = columnsToSearch(newRow);
+        const idRow = idColumns(newRow);
         
         const num = parseInt(searchText, 10) || parseFloat(searchText);
         const isNum = isNaN(num) === false;
@@ -473,15 +498,100 @@ export class SelectExpr<T> extends TypedExpr<T> {
                 return pred;
             })
 
-            return query;
+            var resultQuery: OrderByExpr<T> | undefined = undefined;
+            for(let key in idRow){
+                resultQuery = resultQuery === undefined ? query.orderByDesc((r: any) => r[key]) : resultQuery.thenByDesc((r: any) => r[key])
+            }
+
+            return resultQuery!;
         }
 
-        var union: UnionExpr<any> | undefined = undefined
+        var union: UnionExpr<any> | SelectExpr<any> | undefined = undefined
+        const stringRow = GetColumnsOfType(row, 'string');
 
+        const searchParts = searchText.split(' ')
+        for(var i = 0; i < searchParts.length; i++){
+            var searchPart = searchParts[i]
+            const startsWithWildcard = searchPart.startsWith(searchWildcard)
+            searchPart = startsWithWildcard && searchPart.length > 1 ? searchPart.substring(1, searchPart.length) : searchPart
+            const endsWithWildcard = searchPart.endsWith(searchWildcard)
+            searchPart = endsWithWildcard && searchPart.length > 1 ? searchPart.substring(0, searchPart.length - 1) : searchPart
+
+            var searchValue = startsWithWildcard ? '%' + searchPart : searchPart
+            searchValue = endsWithWildcard ? searchValue + '%' : searchValue;
+
+            for(let key in stringRow)
+            {
+                let selectExpr = new ut.SelectStatementExpr({
+                    projection: this.expr.projection,
+                    from: this.expr.from,
+                })
+
+                const select = new SelectExpr(this.row, selectExpr).where((r: any) => r[key].like(searchValue))
+
+                if(union === undefined)
+                {
+                    union = select
+                }
+                else 
+                {
+                    union = UNION(union, select)
+                }
+            }
+        }
+
+        if(union === undefined){
+            throw new Error('Could not generate search query!')
+        }
+
+        const unionSelect = union instanceof SelectExpr ? union : union.select()
+
+        const fullSearchText = searchText.replace(searchWildcard, '')
+
+        const finalQuery = from(this, 'm')
+                            .join(unionSelect, 'm2').on((r: { m: any, m2: any }) => {
+                                var res: any = undefined
+                                for(let key in idRow){
+                                    if(res === undefined){
+                                        res = r.m[key].equals(r.m2[key])
+                                    }
+                                    else {
+                                        res = res.and(r.m[key].equals(r.m2[key]))
+                                    }
+                                }
+
+                                return res;
+                            }).select((r: { m: any, m2: any }) => {
+                                
+                                return {
+                                    ...r.m,
+                                    '_RowNumber': ROW_NUMBER([PATINDEX(`%${fullSearchText}%`, AggregateStringColumns(stringRow)).desc])
+                                }
+                                
+                            })
         
-        
-        throw ''
+        return from(finalQuery, 'fq').selectAll().orderBy((r: any) => r['_RowNumber']).page(pageNumber, itemsPerPage) as any
     }
+}
+
+function AggregateStringColumns(stringColumns: Row<any>): ColumnExpr<string> {
+    var res: any = undefined
+    const emptySpace = val(' ')
+    for(let key in stringColumns){
+        const column = stringColumns[key]
+        if(res === undefined){
+            res = column
+        }
+        else {
+            res = res.add(emptySpace.add(column))
+        }
+    }
+
+    if(res === undefined){
+        throw new Error('Could not aggregate string columns!')
+    }
+
+    return res;
 }
 
 export function GetColumnsOfType<T>(row: Row<T>, acceptedType: 'string' | 'number'): Row<T> {
