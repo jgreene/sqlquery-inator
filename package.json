@@ -1,6 +1,6 @@
 {
     "name": "sqlquery-inator",
-    "version": "0.0.016",
+    "version": "0.0.017",
     "description": "fetch sql database schema into a friendly data model for code generation",
     "license": "MIT",
     "main": "index.js",
