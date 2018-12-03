@@ -126,7 +126,7 @@ from [dbo].[Person] as ta2`)
     p.[FirstName],
     p.[LastName]
 from [dbo].[Person] as p
-where (p.[FirstName] = @v AND p.[LastName] = @v1)`)
+where (p.[FirstName] = 'Heinz' AND p.[LastName] = 'Doofenschmirtz')`)
 
         compare(safe.sql, 
 `select
@@ -148,7 +148,7 @@ where (ta2.[FirstName] = @v AND ta2.[LastName] = @v1)`)
     p.[FirstName],
     p.[LastName]
 from [dbo].[Person] as p
-where (p.[FirstName] = @v AND p.[LastName] = @v1)`)
+where (p.[FirstName] = 'Heinz' AND p.[LastName] = 'Doofenschmirtz')`)
 
         compare(safe.sql, 
 `select
@@ -242,7 +242,7 @@ join [dbo].[Person] as ta4 on ta4.[ID] = ta2.[ID]`)
     p.[LastName]
 from [dbo].[Person] as p
 join [dbo].[Person] as p2 on p.[ID] = p2.[ID]
-where p.[FirstName] = @v`)
+where p.[FirstName] = 'Heinz'`)
 
         compare(safe.sql,
 `select
@@ -305,7 +305,7 @@ join [dbo].[Person] as ta4 on ta4.[ID] = ta2.[ID]
         
         compare(unsafe.sql,
 `select
-    (@v) as 'ID'
+    (1) as 'ID'
 from [dbo].[Person] as p`)
 
         compare(safe.sql,
@@ -410,7 +410,7 @@ left outer join (
         p.[FirstName],
         p.[LastName]
     from [dbo].[Person] as p
-    where p.[FirstName] = @v
+    where p.[FirstName] = 'Heinz'
 ) as p2 on a.[PersonID] = p2.[ID]`)
 
         compare(safe.sql, 
@@ -532,7 +532,7 @@ left outer join (
             p.[FirstName],
             p.[LastName]
         from [dbo].[Person] as p
-        where p.[FirstName] = @v
+        where p.[FirstName] = 'Heinz'
     ) as ta1
 ) as p2 on a.[PersonID] = p2.[ID]`)
 
@@ -614,7 +614,7 @@ from (
         (ROW_NUMBER() OVER (ORDER BY p.[ID] ASC)) as 'RowNumber'
     from [dbo].[Person] as p
 ) as ta1
-where [RowNumber] > @v`)
+where [RowNumber] > 10`)
 
         compare(safe.sql, 
 `select
@@ -672,7 +672,7 @@ from (
             (ROW_NUMBER() OVER (ORDER BY p.[ID] ASC)) as 'RowNumber'
         from [dbo].[Person] as p
     ) as ta1
-    where ([RowNumber] > @v AND [RowNumber] < @v1)
+    where ([RowNumber] > 10 AND [RowNumber] < 21)
 ) as ta1`)
 
         compare(safe.sql, 
@@ -704,8 +704,8 @@ from (
         const unsafe = toUnsafeQuery(query.expr);
         const safe = toSafeQuery(query.expr);
 
-        expect(unsafe.parameters['v'].value).eq(10);
-        expect(unsafe.parameters['v1'].value).eq(20);
+        expect(safe.parameters['v'].value).eq(10);
+        expect(safe.parameters['v1'].value).eq(20);
 
         compare(unsafe.sql, 
 `select
@@ -720,7 +720,7 @@ from (
         p.[LastName]
     from [dbo].[Person] as p
 ) as ta1
-where ([_RowNumber] > @v AND [_RowNumber] <= @v1)`)
+where ([_RowNumber] > 10 AND [_RowNumber] <= 20)`)
 
         compare(safe.sql, 
 `select
@@ -972,7 +972,7 @@ from (
             (ROW_NUMBER() OVER (ORDER BY p.[ID] ASC)) as 'RowNumber'
         from [dbo].[Person] as p
     ) as ta1
-    where [RowNumber] > @v
+    where [RowNumber] > 10
 ) as p2
 join [dbo].[Address] as a on p2.[ID] = a.[PersonID]`)
 
@@ -1111,7 +1111,7 @@ from (
         p.[FirstName],
         p.[LastName]
     from [dbo].[Person] as p
-    where p.[FirstName] = @v
+    where p.[FirstName] = 'Heinz'
 ) as ta1`)
 
         compare(safe.sql,
@@ -1251,7 +1251,7 @@ from [dbo].[Person] as ta2`)
     p.[LastName]
 from [dbo].[Person] as p
 join [dbo].[Person] as p2 on p.[ID] = p2.[ID]
-where p.[FirstName] = @v`)
+where p.[FirstName] = 'Heinz'`)
 
         compare(safe.sql,
 `select
@@ -1282,7 +1282,7 @@ where ta2.[FirstName] = @v`)
 from [dbo].[Person] as p
 join [dbo].[Person] as p2 on p.[ID] = p2.[ID]
 join [dbo].[Person] as p3 on p2.[ID] = p.[ID]
-where (p.[FirstName] = @v AND p3.[LastName] = @v1)`)
+where (p.[FirstName] = 'Heinz' AND p3.[LastName] = 'Doofenschmirtz')`)
 
         compare(safe.sql,
 `select
@@ -1328,7 +1328,7 @@ join (
         p.[FirstName],
         p.[LastName]
     from [dbo].[Person] as p
-    where p.[FirstName] = @v
+    where p.[FirstName] = 'Heinz'
 ) as p2 on p.[ID] = p2.[ID]
 join (
     select
@@ -1337,10 +1337,10 @@ join (
         a.[StreetAddress1],
         a.[StreetAddress2]
     from [dbo].[Address] as a
-    where a.[StreetAddress1] = @v1
+    where a.[StreetAddress1] = 'Evil Incorporated'
 ) as a2 on a2.[PersonID] = p.[ID]
 join [dbo].[Address] as a on a2.[ID] = a.[ID]
-where p.[FirstName] = @v2`)
+where p.[FirstName] = 'Heinz'`)
 
         compare(safe.sql,
 `select
@@ -1381,7 +1381,7 @@ where ta2.[FirstName] = @v2`)
     p.[FirstName],
     p.[LastName]
 from [dbo].[Person] as p
-where (p.[FirstName] = @v OR p.[LastName] = @v1)`)
+where (p.[FirstName] = 'Heinz' OR p.[LastName] = 'Doofenschmirtz')`)
 
         compare(safe.sql, 
 `select
@@ -1414,7 +1414,7 @@ where (ta2.[FirstName] = @v OR ta2.[LastName] = @v1)`)
     p.[FirstName],
     p.[LastName]
 from [dbo].[Person] as p
-where (((p.[FirstName] = @v AND p.[LastName] = @v1) OR (p.[LastName] = @v2 AND p.[FirstName] = @v3)) OR p.[ID] = @v4)`)
+where (((p.[FirstName] = 'Heinz' AND p.[LastName] = 'Doofenschmirtz') OR (p.[LastName] = 'Incorporated' AND p.[FirstName] = 'Evil')) OR p.[ID] = 1)`)
 
         compare(safe.sql, 
 `select
@@ -1439,7 +1439,7 @@ where (((ta2.[FirstName] = @v AND ta2.[LastName] = @v1) OR (ta2.[LastName] = @v2
     p.[FirstName],
     p.[LastName]
 from [dbo].[Person] as p
-where p.[FirstName] like @v`)
+where p.[FirstName] like '%Heinz%'`)
 
         compare(safe.sql, 
 `select
@@ -1466,7 +1466,7 @@ where ta2.[FirstName] like @v`)
     p.[ID],
     p.[FirstName],
     p.[LastName],
-    (ROW_NUMBER() OVER (ORDER BY PATINDEX(@v, p.[FirstName]) DESC)) as 'RowNumber'
+    (ROW_NUMBER() OVER (ORDER BY PATINDEX('%Test%', p.[FirstName]) DESC)) as 'RowNumber'
 from [dbo].[Person] as p`)
 
         compare(safe.sql, 
@@ -1494,7 +1494,7 @@ from [dbo].[Person] as ta2`)
     p.[ID],
     p.[FirstName],
     p.[LastName],
-    (p.[FirstName] + @v + p.[LastName]) as 'FirstAndLast'
+    (p.[FirstName] + ' ' + p.[LastName]) as 'FirstAndLast'
 from [dbo].[Person] as p`)
 
         compare(safe.sql, 
@@ -1542,7 +1542,7 @@ from (
                 p.[FirstName],
                 p.[LastName]
             from [dbo].[Person] as p
-            where p.[FirstName] = @v
+            where p.[FirstName] = 'Heinz'
         ) as ta1
     union
         select
@@ -1553,7 +1553,7 @@ from (
                 p.[FirstName],
                 p.[LastName]
             from [dbo].[Person] as p
-            where p.[LastName] = @v1
+            where p.[LastName] = 'Doofenschmirtz'
         ) as ta1
     union
         select
@@ -1564,7 +1564,7 @@ from (
                 p.[FirstName],
                 p.[LastName]
             from [dbo].[Person] as p
-            where p.[ID] = @v2
+            where p.[ID] = 1
         ) as ta1
 ) as ta1`)
 
@@ -1621,10 +1621,10 @@ from (
 from [dbo].[Person] as p
 where p.[ID] in (
     (
-        @v,
-        @v1,
-        @v2,
-        @v3
+        1,
+        2,
+        3,
+        4
     )
 )`)
 
@@ -1667,7 +1667,7 @@ where p.[ID] in (
             p.[FirstName],
             p.[LastName]
         from [dbo].[Person] as p
-        where p.[FirstName] = @v
+        where p.[FirstName] = 'Heinz'
     ) as ta1
 )`)
 
@@ -1699,133 +1699,119 @@ where ta2.[ID] in (
 
         compare(unsafe.sql, 
 `select
-    [ID],
-    [FirstName],
-    [LastName],
-    [_RowNumber]
+    fq.[ID],
+    fq.[FirstName],
+    fq.[LastName],
+    fq.[_RowNumber]
 from (
     select
-        (ROW_NUMBER() OVER (ORDER BY fq.[_RowNumber] ASC)) as '_RowNumber',
-        fq.[ID],
-        fq.[FirstName],
-        fq.[LastName],
-        fq.[_RowNumber]
+        m.[ID],
+        m.[FirstName],
+        m.[LastName],
+        (ROW_NUMBER() OVER (ORDER BY PATINDEX('%Heinz Doofenschmirtz%', m.[FirstName] + ' ' + m.[LastName]) DESC, m.[ID] DESC)) as '_RowNumber'
     from (
         select
-            m.[ID],
-            m.[FirstName],
-            m.[LastName],
-            (ROW_NUMBER() OVER (ORDER BY PATINDEX(@v4, [FirstName] + @v5 + [LastName]) DESC)) as '_RowNumber'
+            p.[ID],
+            p.[FirstName],
+            p.[LastName]
+        from [dbo].[Person] as p
+    ) as m
+    join (
+        select
+            [ID],
+            [FirstName],
+            [LastName]
         from (
-            select
-                p.[ID],
-                p.[FirstName],
-                p.[LastName]
-            from [dbo].[Person] as p
-        ) as m
-        join (
-            select
-                p.[ID],
-                p.[FirstName],
-                p.[LastName]
-            from (
-                    select
-                        p.[ID],
-                        p.[FirstName],
-                        p.[LastName]
-                    from [dbo].[Person] as p
-                    where p.[FirstName] like @v
-                union
-                    select
-                        p.[ID],
-                        p.[FirstName],
-                        p.[LastName]
-                    from [dbo].[Person] as p
-                    where p.[LastName] like @v1
-                union
-                    select
-                        p.[ID],
-                        p.[FirstName],
-                        p.[LastName]
-                    from [dbo].[Person] as p
-                    where p.[FirstName] like @v2
-                union
-                    select
-                        p.[ID],
-                        p.[FirstName],
-                        p.[LastName]
-                    from [dbo].[Person] as p
-                    where p.[LastName] like @v3
-            ) as ta1
-        ) as m2 on m.[ID] = m2.[ID]
-    ) as fq
-) as ta1
-where ([_RowNumber] > @v6 AND [_RowNumber] <= @v7)`)
+                select
+                    p.[ID],
+                    p.[FirstName],
+                    p.[LastName]
+                from [dbo].[Person] as p
+                where [FirstName] like 'Heinz%'
+            union
+                select
+                    p.[ID],
+                    p.[FirstName],
+                    p.[LastName]
+                from [dbo].[Person] as p
+                where [LastName] like 'Heinz%'
+            union
+                select
+                    p.[ID],
+                    p.[FirstName],
+                    p.[LastName]
+                from [dbo].[Person] as p
+                where [FirstName] like 'Doofenschmirtz%'
+            union
+                select
+                    p.[ID],
+                    p.[FirstName],
+                    p.[LastName]
+                from [dbo].[Person] as p
+                where [LastName] like 'Doofenschmirtz%'
+        ) as ta1
+    ) as m2 on m.[ID] = m2.[ID]
+) as fq
+where (fq.[_RowNumber] > 0 AND fq.[_RowNumber] <= 20)
+order by fq.[_RowNumber] ASC`)
 
         compare(safe.sql, 
 `select
-    [ID],
-    [FirstName],
-    [LastName],
-    [ca1]
+    ta2.[ID],
+    ta2.[FirstName],
+    ta2.[LastName],
+    ta2.[ca1]
 from (
     select
-        (ROW_NUMBER() OVER (ORDER BY ta2.[ca1] ASC)) as 'ca1',
         ta2.[ID],
         ta2.[FirstName],
         ta2.[LastName],
-        ta2.[ca1]
+        (ROW_NUMBER() OVER (ORDER BY PATINDEX(@v4, ta2.[FirstName] + @v5 + ta2.[LastName]) DESC, ta2.[ID] DESC)) as 'ca1'
     from (
         select
             ta2.[ID],
             ta2.[FirstName],
-            ta2.[LastName],
-            (ROW_NUMBER() OVER (ORDER BY PATINDEX(@v4, [FirstName] + @v5 + [LastName]) DESC)) as 'ca1'
-        from (
-            select
-                ta2.[ID],
-                ta2.[FirstName],
-                ta2.[LastName]
-            from [dbo].[Person] as ta2
-        ) as ta2
-        join (
-            select
-                ta2.[ID],
-                ta2.[FirstName],
-                ta2.[LastName]
-            from (
-                    select
-                        ta2.[ID],
-                        ta2.[FirstName],
-                        ta2.[LastName]
-                    from [dbo].[Person] as ta2
-                    where ta2.[FirstName] like @v
-                union
-                    select
-                        ta2.[ID],
-                        ta2.[FirstName],
-                        ta2.[LastName]
-                    from [dbo].[Person] as ta2
-                    where ta2.[LastName] like @v1
-                union
-                    select
-                        ta2.[ID],
-                        ta2.[FirstName],
-                        ta2.[LastName]
-                    from [dbo].[Person] as ta2
-                    where ta2.[FirstName] like @v2
-                union
-                    select
-                        ta2.[ID],
-                        ta2.[FirstName],
-                        ta2.[LastName]
-                    from [dbo].[Person] as ta2
-                    where ta2.[LastName] like @v3
-            ) as ta1
-        ) as ta3 on ta2.[ID] = ta3.[ID]
+            ta2.[LastName]
+        from [dbo].[Person] as ta2
     ) as ta2
-) as ta1
-where ([ca1] > @v6 AND [ca1] <= @v7)`)
+    join (
+        select
+            [ID],
+            [FirstName],
+            [LastName]
+        from (
+                select
+                    ta2.[ID],
+                    ta2.[FirstName],
+                    ta2.[LastName]
+                from [dbo].[Person] as ta2
+                where [FirstName] like @v
+            union
+                select
+                    ta2.[ID],
+                    ta2.[FirstName],
+                    ta2.[LastName]
+                from [dbo].[Person] as ta2
+                where [LastName] like @v1
+            union
+                select
+                    ta2.[ID],
+                    ta2.[FirstName],
+                    ta2.[LastName]
+                from [dbo].[Person] as ta2
+                where [FirstName] like @v2
+            union
+                select
+                    ta2.[ID],
+                    ta2.[FirstName],
+                    ta2.[LastName]
+                from [dbo].[Person] as ta2
+                where [LastName] like @v3
+        ) as ta1
+    ) as ta3 on ta2.[ID] = ta3.[ID]
+) as ta2
+where (ta2.[ca1] > @v6 AND ta2.[ca1] <= @v7)
+order by ta2.[ca1] ASC`)
     });
 });
 

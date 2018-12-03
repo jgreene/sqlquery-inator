@@ -517,8 +517,10 @@ export class SelectExpr<T> extends TypedExpr<T> {
             const endsWithWildcard = searchPart.endsWith(searchWildcard)
             searchPart = endsWithWildcard && searchPart.length > 1 ? searchPart.substring(0, searchPart.length - 1) : searchPart
 
-            var searchValue = startsWithWildcard ? '%' + searchPart : searchPart
-            searchValue = endsWithWildcard ? searchValue + '%' : searchValue;
+            const searchValue = startsWithWildcard && endsWithWildcard 
+                                ? `%${searchPart}%` : startsWithWildcard 
+                                ? `%${searchPart}`  : endsWithWildcard
+                                ? `${searchPart}%`  : `${searchPart}%`
 
             for(let key in stringRow)
             {
@@ -527,7 +529,7 @@ export class SelectExpr<T> extends TypedExpr<T> {
                     from: this.expr.from,
                 })
 
-                const select = new SelectExpr(this.row, selectExpr).where((r: any) => r[key].like(searchValue))
+                const select = new SelectExpr(newRow, selectExpr).where((r: any) => r[key].like(searchValue))
 
                 if(union === undefined)
                 {
@@ -563,22 +565,38 @@ export class SelectExpr<T> extends TypedExpr<T> {
                                 return res;
                             }).select((r: { m: any, m2: any }) => {
                                 
+                                const orderBy = [PATINDEX(`%${fullSearchText}%`, AggregateStringColumns(stringRow, r.m)).desc].concat(GetIdOrderBy(idRow, r.m))
+
                                 return {
                                     ...r.m,
-                                    '_RowNumber': ROW_NUMBER([PATINDEX(`%${fullSearchText}%`, AggregateStringColumns(stringRow)).desc])
+                                    '_RowNumber': ROW_NUMBER(orderBy)
                                 }
-                                
                             })
+
+        const startIndex = (pageNumber - 1) * itemsPerPage
+        const endIndex = (pageNumber * itemsPerPage)
         
-        return from(finalQuery, 'fq').selectAll().orderBy((r: any) => r['_RowNumber']).page(pageNumber, itemsPerPage) as any
+        return from(finalQuery, 'fq')
+                .selectAll()
+                .orderBy((r: any) => r['_RowNumber'])
+                .where((r: any) => r['_RowNumber'].greaterThan(startIndex).and(r['_RowNumber'].lessThanOrEquals(endIndex))) as any
     }
 }
 
-function AggregateStringColumns(stringColumns: Row<any>): ColumnExpr<string> {
+function GetIdOrderBy(idRow: Row<any>, projectionColumns: Row<any>): Array<OrderColumnExpr<any>>{
+    var res: OrderColumnExpr<any>[] = []
+    for(let key in idRow){
+        const column = projectionColumns[key]
+        res.push(column.desc)
+    }
+    return res;
+}
+
+function AggregateStringColumns(stringColumns: Row<any>, projectionColumns: Row<any>): ColumnExpr<string> {
     var res: any = undefined
     const emptySpace = val(' ')
     for(let key in stringColumns){
-        const column = stringColumns[key]
+        const column = projectionColumns[key]
         if(res === undefined){
             res = column
         }

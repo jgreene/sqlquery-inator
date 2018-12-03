@@ -1,6 +1,7 @@
 import * as ut from './untyped_ast'
 import * as query from './sqlquery'
 import { DBSchema, TableSchema, ColumnSchema } from 'dbschema-inator'
+import * as moment from 'moment'
 
 function predicateOperatorToSql(comparison: ut.PredicateOperator): string {
     if(!ut.isValidPredicateOperator(comparison))
@@ -349,9 +350,15 @@ export function toSql(expr: ut.Expr | undefined, ctx: Context): string {
     }
 
     if(ut.isValueExpr(expr)) {
-        const parameter = query.addParameter(ctx.parameters, { name: 'v', value: expr.value})
+        if(ctx.getTableSchema){
+            const parameter = query.addParameter(ctx.parameters, { name: 'v', value: expr.value})
 
-        return `@${parameter.name}`;
+            return `@${parameter.name}`;
+        }
+        
+        const outputValue = typeof expr.value === 'string' || moment.isMoment(expr.value) ? `'${expr.value.toString()}'` : expr.value
+
+        return `${outputValue}`
     }
 
     if(ut.isAsExpr(expr)) {
