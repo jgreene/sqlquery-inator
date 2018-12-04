@@ -1,7 +1,7 @@
 {
     "name": "sqlquery-inator",
-    "version": "0.0.017",
-    "description": "fetch sql database schema into a friendly data model for code generation",
+    "version": "0.0.0192",
+    "description": "strongly typed SQL queries in typescript",
     "license": "MIT",
     "main": "index.js",
     "types": "index.d.ts",

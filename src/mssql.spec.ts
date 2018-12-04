@@ -1692,7 +1692,7 @@ where ta2.[ID] in (
     });
 
     it('Can use generic search query', async () => {
-        const query = from(Person, 'p').selectAll().search('Heinz Doofenschmirtz', r => r, r => ({ ID: r.ID }), 1, 20)
+        const query = from(Person, 'p').selectAll().search('Heinz Doofenschmirtz', r => r, r => ({ ID: r.ID }))
 
         const unsafe = toUnsafeQuery(query.expr);
         const safe = toSafeQuery(query.expr);
@@ -1708,7 +1708,7 @@ from (
         m.[ID],
         m.[FirstName],
         m.[LastName],
-        (ROW_NUMBER() OVER (ORDER BY PATINDEX('%Heinz Doofenschmirtz%', m.[FirstName] + ' ' + m.[LastName]) DESC, m.[ID] DESC)) as '_RowNumber'
+        (ROW_NUMBER() OVER (ORDER BY PATINDEX('%Heinz Doofenschmirtz%', m.[FirstName] + ' ' + m.[LastName]) DESC, m.[ID] ASC)) as '_RowNumber'
     from (
         select
             p.[ID],
@@ -1752,7 +1752,6 @@ from (
         ) as ta1
     ) as m2 on m.[ID] = m2.[ID]
 ) as fq
-where (fq.[_RowNumber] > 0 AND fq.[_RowNumber] <= 20)
 order by fq.[_RowNumber] ASC`)
 
         compare(safe.sql, 
@@ -1766,7 +1765,7 @@ from (
         ta2.[ID],
         ta2.[FirstName],
         ta2.[LastName],
-        (ROW_NUMBER() OVER (ORDER BY PATINDEX(@v4, ta2.[FirstName] + @v5 + ta2.[LastName]) DESC, ta2.[ID] DESC)) as 'ca1'
+        (ROW_NUMBER() OVER (ORDER BY PATINDEX(@v4, ta2.[FirstName] + @v5 + ta2.[LastName]) DESC, ta2.[ID] ASC)) as 'ca1'
     from (
         select
             ta2.[ID],
@@ -1810,8 +1809,116 @@ from (
         ) as ta1
     ) as ta3 on ta2.[ID] = ta3.[ID]
 ) as ta2
-where (ta2.[ca1] > @v6 AND ta2.[ca1] <= @v7)
 order by ta2.[ca1] ASC`)
+    });
+
+    it('Empty generic search results in full select with orderby ID', async () => {
+        const query = from(Person, 'p').selectAll().search('*', r => r, r => ({ ID: r.ID }))
+
+        const unsafe = toUnsafeQuery(query.expr);
+        const safe = toSafeQuery(query.expr);
+
+        compare(unsafe.sql, 
+`select
+    [ID],
+    [FirstName],
+    [LastName],
+    [_RowNumber]
+from (
+    select
+        [ID],
+        [FirstName],
+        [LastName],
+        (ROW_NUMBER() OVER (ORDER BY [ID] ASC)) as '_RowNumber'
+    from (
+        select
+            p.[ID],
+            p.[FirstName],
+            p.[LastName]
+        from [dbo].[Person] as p
+    ) as ta1
+) as ta1
+order by [_RowNumber] ASC`)
+
+        compare(safe.sql, 
+`select
+    [ID],
+    [FirstName],
+    [LastName],
+    [ca1]
+from (
+    select
+        [ID],
+        [FirstName],
+        [LastName],
+        (ROW_NUMBER() OVER (ORDER BY [ID] ASC)) as 'ca1'
+    from (
+        select
+            ta2.[ID],
+            ta2.[FirstName],
+            ta2.[LastName]
+        from [dbo].[Person] as ta2
+    ) as ta1
+) as ta1
+order by [ca1] ASC`)
+    });
+
+    it('OrderBy is removed when new projection is selected', async () => {
+        const query = from(Person, 'p').selectAll().search('*', r => r, r => ({ ID: r.ID }))
+        const countQuery = query.select(r => ({ total: COUNT() }))
+
+        const unsafe = toUnsafeQuery(countQuery.expr);
+        const safe = toSafeQuery(countQuery.expr);
+
+        compare(unsafe.sql, 
+`select
+    (COUNT(*)) as 'total'
+from (
+    select
+        [ID],
+        [FirstName],
+        [LastName],
+        [_RowNumber]
+    from (
+        select
+            [ID],
+            [FirstName],
+            [LastName],
+            (ROW_NUMBER() OVER (ORDER BY [ID] ASC)) as '_RowNumber'
+        from (
+            select
+                p.[ID],
+                p.[FirstName],
+                p.[LastName]
+            from [dbo].[Person] as p
+        ) as ta1
+    ) as ta1
+) as ta1`)
+
+        compare(safe.sql, 
+`select
+    (COUNT(*)) as 'ca1'
+from (
+    select
+        [ID],
+        [FirstName],
+        [LastName],
+        [ca1]
+    from (
+        select
+            [ID],
+            [FirstName],
+            [LastName],
+            (ROW_NUMBER() OVER (ORDER BY [ID] ASC)) as 'ca1'
+        from (
+            select
+                ta2.[ID],
+                ta2.[FirstName],
+                ta2.[LastName]
+            from [dbo].[Person] as ta2
+        ) as ta1
+    ) as ta1
+) as ta1`)
     });
 });
 

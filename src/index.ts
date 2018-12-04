@@ -402,7 +402,7 @@ export class SelectExpr<T> extends TypedExpr<T> {
 
         const projection = GetProjectionExprFromRow(row);
 
-        const select = new ut.SelectStatementExpr({ projection: projection, from: this.expr, alias: alias });
+        const select = new ut.SelectStatementExpr({ projection: projection, from: { ...this.expr, orderBy: undefined }, alias: alias });
 
         return new SelectExpr<Projection>(row, select);
     }
@@ -469,13 +469,13 @@ export class SelectExpr<T> extends TypedExpr<T> {
         searchText: string, 
         columnsToSearch: (t: Row<T>) => Row<ColumnsToSearch>,
         idColumns: (t: Row<T>) => Row<IdColumns>,
-        pageNumber: number,
-        itemsPerPage: number,
         searchWildcard: string = '*'
-    ): OrderByExpr<T> {
+    ): OrderByExpr<T & { '_RowNumber': ColumnExpr<number> }> {
+        searchText = searchText.trim()
         const newRow = GetColumnProjectionsFromRow(this.row);
         const row = columnsToSearch(newRow);
         const idRow = idColumns(newRow);
+        
         
         const num = parseInt(searchText, 10) || parseFloat(searchText);
         const isNum = isNaN(num) === false;
@@ -483,10 +483,10 @@ export class SelectExpr<T> extends TypedExpr<T> {
         if(isNum){
             const numberRow = GetColumnsOfType(row, 'number')
             
-            const query = this.where((r: any) => {
+            const query = this.where((r) => {
                 var pred: any = undefined;
                 for(let n in numberRow){
-                    const column = numberRow[n];
+                    const column = (r as any)[n];
                     if(pred === undefined){
                         pred = column.equals(num)
                     }
@@ -496,14 +496,25 @@ export class SelectExpr<T> extends TypedExpr<T> {
                 }
 
                 return pred;
-            })
+            }).select((r: Row<any>) => {
+                const orderBy = GetIdOrderBy(idRow, r)
+                return {
+                    ...r,
+                    _RowNumber: ROW_NUMBER(orderBy)
+                }
+            }).select(r => r).orderBy(r => r._RowNumber)
 
-            var resultQuery: OrderByExpr<T> | undefined = undefined;
-            for(let key in idRow){
-                resultQuery = resultQuery === undefined ? query.orderByDesc((r: any) => r[key]) : resultQuery.thenByDesc((r: any) => r[key])
-            }
+            return query as any
+        }
 
-            return resultQuery!;
+        if(searchText === searchWildcard || searchText === ''){
+            return this.select((r: Row<any>) => {
+                const orderBy = GetIdOrderBy(idRow, r)
+                return {
+                    ...r,
+                    _RowNumber: ROW_NUMBER(orderBy)
+                }
+            }).select(r => r).orderBy(r => r._RowNumber) as any
         }
 
         var union: UnionExpr<any> | SelectExpr<any> | undefined = undefined
@@ -572,14 +583,10 @@ export class SelectExpr<T> extends TypedExpr<T> {
                                     '_RowNumber': ROW_NUMBER(orderBy)
                                 }
                             })
-
-        const startIndex = (pageNumber - 1) * itemsPerPage
-        const endIndex = (pageNumber * itemsPerPage)
         
         return from(finalQuery, 'fq')
                 .selectAll()
-                .orderBy((r: any) => r['_RowNumber'])
-                .where((r: any) => r['_RowNumber'].greaterThan(startIndex).and(r['_RowNumber'].lessThanOrEquals(endIndex))) as any
+                .orderBy((r: any) => r['_RowNumber']) as any
     }
 }
 
@@ -587,7 +594,7 @@ function GetIdOrderBy(idRow: Row<any>, projectionColumns: Row<any>): Array<Order
     var res: OrderColumnExpr<any>[] = []
     for(let key in idRow){
         const column = projectionColumns[key]
-        res.push(column.desc)
+        res.push(column.asc)
     }
     return res;
 }
