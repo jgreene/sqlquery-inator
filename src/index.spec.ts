@@ -15,7 +15,7 @@ const PersonType = t.type({
 
 class Person extends tdc.DeriveClass(PersonType) {}
 
-registerTable<Person>(Person, 'sqlquery-inator.dbo.Person');
+registerTable<Person>(Person, 'dbo.Person');
 
 describe('SQL query AST', () => {
 

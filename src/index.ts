@@ -21,10 +21,10 @@ export type AggregateRow<T> = {
     [P in keyof T]: T[P] extends AggregateColumnExpr<infer U> ? T[P] : never
 }
 
-const tableNameMap: any = {}
+const tableNameMap: Map<any, string> = new Map()
 
 export function registerTable<T>(ctor: Constructor<T>, tableName: string) {
-    tableNameMap[ctor as any] = tableName;
+    tableNameMap.set(ctor, tableName)
 }
 
 export function registerFunction(name: string) {
@@ -32,7 +32,7 @@ export function registerFunction(name: string) {
 }
 
 export function getTableFromType(ctor: Table<any>): string {
-    const name = tableNameMap[ctor as any];
+    const name = tableNameMap.get(ctor);
     if(name === undefined){
         throw new Error('Could not find table for type: ' + ctor.name);
     }

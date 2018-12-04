@@ -1,6 +1,6 @@
 {
     "name": "sqlquery-inator",
-    "version": "0.0.0192",
+    "version": "0.0.0193",
     "description": "strongly typed SQL queries in typescript",
     "license": "MIT",
     "main": "index.js",
