@@ -301,17 +301,18 @@ cpx@^1.5.0:
     shell-quote "^1.6.1"
     subarg "^1.0.0"
 
-dbschema-inator@^0.0.5:
-  version "0.0.5"
-  resolved "https://registry.yarnpkg.com/dbschema-inator/-/dbschema-inator-0.0.5.tgz#b2c349458beebb490212b580067681dbf133c7f2"
+dbschema-inator@^0.0.6:
+  version "0.0.6"
+  resolved "https://registry.yarnpkg.com/dbschema-inator/-/dbschema-inator-0.0.6.tgz#7e9e4db38d3e6f77ad8365807599ba772b2dd3d3"
+  integrity sha512-LjWVSxWU/gD4vAUGUMKMMb/53GDFwKIJh96w4Br40g76eJIRyUhvqoC5C8TxODxSzgl9cAUwnEmQVKESTWVh6w==
   dependencies:
     "@types/chai" "^4.1.6"
     "@types/mocha" "^5.2.5"
     "@types/mssql" "^4.0.10"
     chai "^4.2.0"
     mocha "^5.2.0"
-    msnodesqlv8 "^0.6.8"
-    mssql "^4.2.1"
+    msnodesqlv8 "^0.6.11"
+    mssql "^4.3.0"
 
 debug@3.1.0:
   version "3.1.0"
@@ -946,13 +947,15 @@ ms@^2.1.1:
   version "2.1.1"
   resolved "https://registry.yarnpkg.com/ms/-/ms-2.1.1.tgz#30a5864eb3ebb0a66f2ebe6d727af06a09d86e0a"
 
-msnodesqlv8@^0.6.8:
-  version "0.6.9"
-  resolved "https://registry.yarnpkg.com/msnodesqlv8/-/msnodesqlv8-0.6.9.tgz#429d6e1a500e3b86efed738a5b1aef07068eaa87"
+msnodesqlv8@^0.6.11:
+  version "0.6.11"
+  resolved "https://registry.yarnpkg.com/msnodesqlv8/-/msnodesqlv8-0.6.11.tgz#a7e16fc0ff66bc3348de75ee6163a6593d4503b9"
+  integrity sha512-DKtLqJMjqf4Jv6YDrW+mcLgYOwdWte+3x4vmUOssSir45nCRyy/r+kwAjwciczxbQcBEU7b7QcE/tWy0iAq/Eg==
 
-mssql@^4.2.1:
-  version "4.2.2"
-  resolved "https://registry.yarnpkg.com/mssql/-/mssql-4.2.2.tgz#98378427de9faf422430bad03c7919fb894ec490"
+mssql@^4.3.0:
+  version "4.3.0"
+  resolved "https://registry.yarnpkg.com/mssql/-/mssql-4.3.0.tgz#1ff6d1392a3332236fefd66b48c3d44e9630ff80"
+  integrity sha512-MpSwdLMbKfFL3DwjhgbJdFViU+ye9YR+op/t/CdhWwYdA90qWYjPyWbIzso/2xRfm7liYNkN5EZjAS9PWFLLZg==
   dependencies:
     debug "^3.2.6"
     generic-pool "^3.4.2"
